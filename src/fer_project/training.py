@@ -7,6 +7,37 @@ from torch import nn
 from tqdm.auto import tqdm
 
 
+class FocalLoss(nn.Module):
+    """Cross-entropy focal loss for imbalanced multi-class classification."""
+
+    def __init__(
+        self,
+        gamma: float = 2.0,
+        weight: torch.Tensor | None = None,
+    ) -> None:
+        super().__init__()
+        self.gamma = gamma
+        self.register_buffer("weight", weight if weight is not None else None)
+
+    def forward(self, logits: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
+        ce_loss = nn.functional.cross_entropy(logits, targets, weight=self.weight, reduction="none")
+        pt = torch.exp(-ce_loss)
+        return ((1 - pt) ** self.gamma * ce_loss).mean()
+
+
+def build_criterion(
+    loss_name: str = "cross_entropy",
+    class_weight: torch.Tensor | None = None,
+    focal_gamma: float = 2.0,
+) -> nn.Module:
+    """Build the supervised loss used for an experiment."""
+    if loss_name == "cross_entropy":
+        return nn.CrossEntropyLoss(weight=class_weight)
+    if loss_name == "focal":
+        return FocalLoss(gamma=focal_gamma, weight=class_weight)
+    raise ValueError("loss_name must be 'cross_entropy' or 'focal'")
+
+
 def train_one_epoch(model, loader, criterion, optimizer, device):
     """Run one supervised training epoch and report average metrics.
 
@@ -81,6 +112,8 @@ def fit(
     lr: float = 1e-3,
     weight_decay: float = 1e-4,
     class_weight: torch.Tensor | None = None,
+    loss_name: str = "cross_entropy",
+    focal_gamma: float = 2.0,
     checkpoint_path: str | Path | None = None,
 ):
     """Train a model for multiple epochs and optionally save the best checkpoint.
@@ -93,6 +126,8 @@ def fit(
         lr: AdamW learning rate.
         weight_decay: AdamW weight decay coefficient.
         class_weight: Optional per-class weights for cross-entropy loss.
+        loss_name: Either ``"cross_entropy"`` or ``"focal"``.
+        focal_gamma: Focusing parameter used when ``loss_name="focal"``.
         checkpoint_path: Optional path where the best validation-loss weights are
             saved.
 
@@ -103,7 +138,11 @@ def fit(
     model = model.to(device)
     trainable_params = [p for p in model.parameters() if p.requires_grad]
     optimizer = torch.optim.AdamW(trainable_params, lr=lr, weight_decay=weight_decay)
-    criterion = nn.CrossEntropyLoss(weight=class_weight.to(device) if class_weight is not None else None)
+    criterion = build_criterion(
+        loss_name=loss_name,
+        class_weight=class_weight.to(device) if class_weight is not None else None,
+        focal_gamma=focal_gamma,
+    )
 
     history = []
     best_val_loss = float("inf")

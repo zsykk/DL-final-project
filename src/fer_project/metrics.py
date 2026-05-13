@@ -104,3 +104,42 @@ def plot_confusion_matrix(y_true, y_pred, output_path: str | Path | None = None,
         plt.savefig(output_path, dpi=180, bbox_inches="tight")
 
     return plt.gca()
+
+
+def top_confusions(y_true, y_pred, top_n: int = 10) -> pd.DataFrame:
+    """Return the most common off-diagonal confusion pairs.
+
+    Args:
+        y_true: Ground-truth integer emotion labels.
+        y_pred: Predicted integer emotion labels.
+        top_n: Number of confusion pairs to report.
+
+    Returns:
+        DataFrame with true class, predicted class, raw count, and within-class
+        confusion rate.
+    """
+    labels = list(EMOTION_LABELS.keys())
+    cm = confusion_matrix(y_true, y_pred, labels=labels)
+    columns = ["true_emotion", "predicted_emotion", "count", "true_class_rate"]
+    rows = []
+
+    for true_label in labels:
+        true_count = cm[true_label].sum()
+        for pred_label in labels:
+            if true_label == pred_label:
+                continue
+            count = int(cm[true_label, pred_label])
+            if count == 0:
+                continue
+            rows.append(
+                {
+                    "true_emotion": EMOTION_LABELS[true_label],
+                    "predicted_emotion": EMOTION_LABELS[pred_label],
+                    "count": count,
+                    "true_class_rate": count / max(true_count, 1),
+                }
+            )
+
+    if not rows:
+        return pd.DataFrame(columns=columns)
+    return pd.DataFrame(rows, columns=columns).sort_values(["count", "true_class_rate"], ascending=False).head(top_n)
