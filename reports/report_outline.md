@@ -24,7 +24,7 @@ Report accuracy, macro F1, weighted F1, per-class precision/recall/F1, and confu
 
 ## 5. Results
 
-Use the generated CSV files and figures from `results/metrics` and `results/figures`.
+Use the generated metric tables and figures from `results/metrics` and `results/figures`.
 
 ## 6. Error Analysis
 

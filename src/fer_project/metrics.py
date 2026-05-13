@@ -14,6 +14,16 @@ from .data import EMOTION_LABELS
 
 @torch.no_grad()
 def collect_predictions(model, loader, device):
+    """Collect true and predicted labels from a model over a dataloader.
+
+    Args:
+        model: PyTorch model used for inference.
+        loader: Dataloader yielding image and label batches.
+        device: Torch device where image tensors and the model are placed.
+
+    Returns:
+        Tuple of NumPy arrays ``(y_true, y_pred)``.
+    """
     model.eval()
     y_true = []
     y_pred = []
@@ -28,6 +38,15 @@ def collect_predictions(model, loader, device):
 
 
 def classification_metrics(y_true, y_pred) -> dict:
+    """Compute FER2013 F1 scores and a per-class classification report.
+
+    Args:
+        y_true: Ground-truth integer emotion labels.
+        y_pred: Predicted integer emotion labels.
+
+    Returns:
+        Dictionary containing macro F1, weighted F1, and a scikit-learn report.
+    """
     target_names = [EMOTION_LABELS[i] for i in range(len(EMOTION_LABELS))]
     return {
         "macro_f1": f1_score(y_true, y_pred, average="macro"),
@@ -36,16 +55,37 @@ def classification_metrics(y_true, y_pred) -> dict:
     }
 
 
-def save_classification_report(y_true, y_pred, output_csv: str | Path) -> pd.DataFrame:
+def save_classification_report(y_true, y_pred, output_path: str | Path) -> pd.DataFrame:
+    """Save a per-class classification report table.
+
+    Args:
+        y_true: Ground-truth integer emotion labels.
+        y_pred: Predicted integer emotion labels.
+        output_path: Destination path for the report table.
+
+    Returns:
+        DataFrame representation of the saved classification report.
+    """
     target_names = [EMOTION_LABELS[i] for i in range(len(EMOTION_LABELS))]
     report = classification_report(y_true, y_pred, target_names=target_names, output_dict=True)
     frame = pd.DataFrame(report).transpose()
-    Path(output_csv).parent.mkdir(parents=True, exist_ok=True)
-    frame.to_csv(output_csv)
+    Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+    frame.to_csv(output_path)
     return frame
 
 
 def plot_confusion_matrix(y_true, y_pred, output_path: str | Path | None = None, normalize: bool = True):
+    """Plot a FER2013 confusion matrix and optionally save it to disk.
+
+    Args:
+        y_true: Ground-truth integer emotion labels.
+        y_pred: Predicted integer emotion labels.
+        output_path: Optional image path where the plot is saved.
+        normalize: Whether to row-normalize counts into per-class proportions.
+
+    Returns:
+        Matplotlib axes containing the rendered heatmap.
+    """
     labels = list(EMOTION_LABELS.keys())
     names = [EMOTION_LABELS[i] for i in labels]
     cm = confusion_matrix(y_true, y_pred, labels=labels)

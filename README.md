@@ -12,45 +12,62 @@ Compare a CNN trained from scratch against transfer learning strategies under a 
 
 Recommended source:
 
-- FER2013 on Kaggle
-- FER-2013 on Wolfram Data Repository
+- FER2013 image-folder dataset on Kaggle
 
-Expected CSV format:
-
-- `emotion`: integer label from 0 to 6
-- `pixels`: flattened 48x48 grayscale image as a space-separated string
-- `Usage`: `Training`, `PublicTest`, or `PrivateTest`
-
-Place the CSV here for local or Colab use:
+Expected extracted folder format:
 
 ```text
-data/raw/fer2013.csv
+data/raw/fer2013_images/
+  train/
+    angry/
+    disgust/
+    fear/
+    happy/
+    neutral/
+    sad/
+    surprise/
+  test/
+    angry/
+    disgust/
+    fear/
+    happy/
+    neutral/
+    sad/
+    surprise/
 ```
 
-For Kaggle, you can instead set `CSV_PATH` in the notebook to the dataset input path, for example:
+The images are 48x48 grayscale face crops. The project maps folder names to the
+official FER2013 labels:
+
+```text
+0=Angry, 1=Disgust, 2=Fear, 3=Happy, 4=Sad, 5=Surprise, 6=Neutral
+```
+
+Place the extracted Kaggle dataset under `data/raw/fer2013_images` for local use.
+On Kaggle, set `DATA_DIR` in the notebook to the dataset input folder, for example:
 
 ```python
-CSV_PATH = Path("/kaggle/input/fer2013/fer2013.csv")
+DATA_DIR = Path("/kaggle/input/fer2013")
 ```
 
 ## Structure
 
 ```text
 data/
-  raw/                  # FER2013 CSV goes here, ignored by Git
+  raw/                  # Extracted FER2013 image folders go here, ignored by Git
   processed/            # Optional derived files
 notebooks/
   01_data_exploration.ipynb
   02_train_experiments.ipynb
 src/fer_project/
-  data.py               # FER2013 dataset, transforms, dataloaders
+  data.py               # FER2013 image-folder dataset, transforms, dataloaders
   models.py             # Baseline CNN and transfer learning builders
   training.py           # Training loop
   metrics.py            # F1 reports and confusion matrices
 results/
   checkpoints/          # Saved model weights, ignored by Git
   figures/              # Confusion matrices and plots, ignored by Git
-  metrics/              # CSV reports, ignored by Git
+  metrics/              # Saved metric tables, ignored by Git
 reports/
   report_outline.md
 ```
@@ -65,9 +82,27 @@ Run these in `notebooks/02_train_experiments.ipynb`:
 4. ResNet18 transfer learning with fine-tuning
 5. Baseline CNN with augmentation and class-weighted loss
 
+Before running full experiments, start with a smoke test that uses one epoch and
+a small class-stratified subset:
+
+```python
+smoke_config = {**EXPERIMENTS[0], "epochs": 1}
+history, report = run_experiment(
+    smoke_config,
+    batch_size=32,
+    num_workers=0,
+    subset_fraction=0.05,
+)
+```
+
+Increase `subset_fraction` gradually, for example `0.05`, `0.20`, then `1.0`,
+once the pipeline runs without errors.
+
 ## Why Preprocessing Is Needed
 
-FER2013 is structured, but not ready for a model directly. The `pixels` column must be converted from strings into 48x48 arrays, normalized, and transformed into tensors.
+FER2013 images are already split into class folders, but preprocessing is still
+needed. The notebooks load image folders, map emotion names to official label ids,
+normalize pixels, and transform images into tensors.
 
 For transfer learning, preprocessing is more important because pretrained models usually expect RGB 224x224 images. The notebook handles this by resizing 48x48 grayscale images to 224x224 and converting them to three channels.
 

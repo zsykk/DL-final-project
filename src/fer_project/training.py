@@ -8,6 +8,18 @@ from tqdm.auto import tqdm
 
 
 def train_one_epoch(model, loader, criterion, optimizer, device):
+    """Run one supervised training epoch and report average metrics.
+
+    Args:
+        model: PyTorch model to optimize.
+        loader: Dataloader yielding image and label batches.
+        criterion: Loss function used to compare logits with labels.
+        optimizer: Optimizer responsible for parameter updates.
+        device: Torch device where tensors and the model are placed.
+
+    Returns:
+        Dictionary containing mean loss and accuracy for the epoch.
+    """
     model.train()
     total_loss = 0.0
     correct = 0
@@ -32,6 +44,17 @@ def train_one_epoch(model, loader, criterion, optimizer, device):
 
 @torch.no_grad()
 def evaluate_loss_accuracy(model, loader, criterion, device):
+    """Evaluate average loss and accuracy without updating model weights.
+
+    Args:
+        model: PyTorch model to evaluate.
+        loader: Dataloader yielding image and label batches.
+        criterion: Loss function used to compute evaluation loss.
+        device: Torch device where tensors and the model are placed.
+
+    Returns:
+        Dictionary containing mean loss and accuracy for the dataloader.
+    """
     model.eval()
     total_loss = 0.0
     correct = 0
@@ -60,6 +83,23 @@ def fit(
     class_weight: torch.Tensor | None = None,
     checkpoint_path: str | Path | None = None,
 ):
+    """Train a model for multiple epochs and optionally save the best checkpoint.
+
+    Args:
+        model: PyTorch model to train.
+        loaders: Mapping containing at least ``"train"`` and ``"val"`` dataloaders.
+        device: Torch device used for training and validation.
+        epochs: Number of epochs to run.
+        lr: AdamW learning rate.
+        weight_decay: AdamW weight decay coefficient.
+        class_weight: Optional per-class weights for cross-entropy loss.
+        checkpoint_path: Optional path where the best validation-loss weights are
+            saved.
+
+    Returns:
+        List of epoch metric dictionaries containing train and validation loss
+        and accuracy.
+    """
     model = model.to(device)
     trainable_params = [p for p in model.parameters() if p.requires_grad]
     optimizer = torch.optim.AdamW(trainable_params, lr=lr, weight_decay=weight_decay)
