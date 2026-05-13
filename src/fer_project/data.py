@@ -68,7 +68,9 @@ def build_transforms(config: TransformConfig, input_is_pil: bool = False) -> tra
             ]
         )
 
-    if config.channels == 3:
+    if config.channels == 1:
+        ops.append(transforms.Grayscale(num_output_channels=1))
+    elif config.channels == 3:
         ops.append(transforms.Grayscale(num_output_channels=3))
 
     ops.append(transforms.ToTensor())
