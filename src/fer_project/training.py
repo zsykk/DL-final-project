@@ -104,6 +104,11 @@ def evaluate_loss_accuracy(model, loader, criterion, device):
     return {"loss": total_loss / total, "accuracy": correct / total}
 
 
+def format_epoch_metrics(row: dict) -> dict:
+    """Format epoch metrics for compact console logging."""
+    return {key: round(value, 4) if isinstance(value, float) else value for key, value in row.items()}
+
+
 def fit(
     model,
     loaders,
@@ -159,7 +164,7 @@ def fit(
             "val_accuracy": val_metrics["accuracy"],
         }
         history.append(row)
-        print(row)
+        print(format_epoch_metrics(row))
 
         if checkpoint_path is not None and val_metrics["loss"] < best_val_loss:
             best_val_loss = val_metrics["loss"]

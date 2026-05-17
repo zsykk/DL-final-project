@@ -273,6 +273,7 @@ def build_imagefolder_dataloaders(
         "val": val_subset,
         "test": test_subset,
     }
+    pin_memory = torch.cuda.is_available()
     loaders = {
         "train": DataLoader(
             datasets["train"],
@@ -280,7 +281,7 @@ def build_imagefolder_dataloaders(
             shuffle=shuffle,
             sampler=sampler,
             num_workers=num_workers,
-            pin_memory=True,
+            pin_memory=pin_memory,
         ),
         "val": DataLoader(datasets["val"], batch_size=batch_size, shuffle=False, num_workers=num_workers),
         "test": DataLoader(datasets["test"], batch_size=batch_size, shuffle=False, num_workers=num_workers),

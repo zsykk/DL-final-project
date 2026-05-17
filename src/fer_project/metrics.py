@@ -49,9 +49,15 @@ def classification_metrics(y_true, y_pred) -> dict:
     """
     target_names = [EMOTION_LABELS[i] for i in range(len(EMOTION_LABELS))]
     return {
-        "macro_f1": f1_score(y_true, y_pred, average="macro"),
-        "weighted_f1": f1_score(y_true, y_pred, average="weighted"),
-        "report": classification_report(y_true, y_pred, target_names=target_names, output_dict=True),
+        "macro_f1": f1_score(y_true, y_pred, average="macro", zero_division=0),
+        "weighted_f1": f1_score(y_true, y_pred, average="weighted", zero_division=0),
+        "report": classification_report(
+            y_true,
+            y_pred,
+            target_names=target_names,
+            output_dict=True,
+            zero_division=0,
+        ),
     }
 
 
@@ -67,7 +73,13 @@ def save_classification_report(y_true, y_pred, output_path: str | Path) -> pd.Da
         DataFrame representation of the saved classification report.
     """
     target_names = [EMOTION_LABELS[i] for i in range(len(EMOTION_LABELS))]
-    report = classification_report(y_true, y_pred, target_names=target_names, output_dict=True)
+    report = classification_report(
+        y_true,
+        y_pred,
+        target_names=target_names,
+        output_dict=True,
+        zero_division=0,
+    )
     frame = pd.DataFrame(report).transpose()
     Path(output_path).parent.mkdir(parents=True, exist_ok=True)
     frame.to_csv(output_path)
