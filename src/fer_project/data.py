@@ -174,7 +174,8 @@ def class_weights(labels: np.ndarray, num_classes: int = 7) -> torch.Tensor:
         Float tensor of per-class weights suitable for cross-entropy loss.
     """
     counts = np.bincount(labels, minlength=num_classes)
-    weights = counts.sum() / np.maximum(counts, 1)
+    # weights = counts.sum() / np.maximum(counts, 1)
+    weights = 1.0 / np.sqrt(np.maximum(counts, 1))
     weights = weights / weights.mean()
     return torch.tensor(weights, dtype=torch.float32)
 
