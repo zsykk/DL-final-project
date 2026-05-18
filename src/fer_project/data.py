@@ -85,6 +85,55 @@ def build_transforms(config: TransformConfig, input_is_pil: bool = False) -> tra
     return transforms.Compose(ops)
 
 
+def baseline_crop_train_transform(image_size: int = 48, crop_size: int = 44) -> transforms.Compose:
+    """Build the crop-based training transform used by the baseline CNN.
+
+    The teacher baseline trains on random 44x44 crops. This project baseline has
+    a fixed 48x48 classifier head, so crops are resized back to 48x48 after
+    cropping to keep the existing architecture runnable.
+    """
+    return transforms.Compose(
+        [
+            transforms.Grayscale(num_output_channels=1),
+            transforms.RandomCrop(crop_size),
+            transforms.Resize((image_size, image_size)),
+            transforms.RandomHorizontalFlip(p=0.5),
+            transforms.ToTensor(),
+            transforms.Normalize(mean=[0.5], std=[0.5]),
+        ]
+    )
+
+
+def baseline_eval_transform(image_size: int = 48) -> transforms.Compose:
+    """Build the deterministic baseline CNN evaluation transform."""
+    return transforms.Compose(
+        [
+            transforms.Grayscale(num_output_channels=1),
+            transforms.Resize((image_size, image_size)),
+            transforms.ToTensor(),
+            transforms.Normalize(mean=[0.5], std=[0.5]),
+        ]
+    )
+
+
+def baseline_tencrop_eval_transform(image_size: int = 48, crop_size: int = 44) -> transforms.Compose:
+    """Build TenCrop-style baseline evaluation transforms.
+
+    Returns a tensor shaped ``(10, 1, image_size, image_size)`` for each image.
+    The caller must average predictions across the crop dimension.
+    """
+    resize = transforms.Resize((image_size, image_size))
+    to_tensor = transforms.ToTensor()
+    normalize = transforms.Normalize(mean=[0.5], std=[0.5])
+    return transforms.Compose(
+        [
+            transforms.Grayscale(num_output_channels=1),
+            transforms.TenCrop(crop_size),
+            transforms.Lambda(lambda crops: torch.stack([normalize(to_tensor(resize(crop))) for crop in crops])),
+        ]
+    )
+
+
 def folder_class_to_fer_label(class_name: str) -> int:
     """Convert an image-folder class name into the official FER2013 label id.
 
@@ -253,6 +302,104 @@ def build_imagefolder_dataloaders(
         test_dir,
         transform=build_transforms(eval_config, input_is_pil=True),
     )
+    test_dataset.target_transform = _imagefolder_target_transform(test_dataset)
+    test_indices = stratified_subset_indices(
+        dataset_labels(test_dataset),
+        fraction=subset_fraction,
+        seed=seed,
+    )
+    test_subset = Subset(test_dataset, test_indices)
+
+    sampler = None
+    shuffle = True
+    if weighted_sampler:
+        labels = dataset_labels(train_subset)
+        weights = class_weights(labels).numpy()
+        sample_weights = weights[labels]
+        sampler = WeightedRandomSampler(sample_weights, num_samples=len(sample_weights), replacement=True)
+        shuffle = False
+
+    datasets = {
+        "train": train_subset,
+        "val": val_subset,
+        "test": test_subset,
+    }
+    pin_memory = torch.cuda.is_available()
+    loaders = {
+        "train": DataLoader(
+            datasets["train"],
+            batch_size=batch_size,
+            shuffle=shuffle,
+            sampler=sampler,
+            num_workers=num_workers,
+            pin_memory=pin_memory,
+        ),
+        "val": DataLoader(datasets["val"], batch_size=batch_size, shuffle=False, num_workers=num_workers),
+        "test": DataLoader(datasets["test"], batch_size=batch_size, shuffle=False, num_workers=num_workers),
+    }
+    return loaders, datasets
+
+
+def build_baseline_crop_dataloaders(
+    data_dir: str | Path,
+    batch_size: int = 128,
+    num_workers: int = 2,
+    weighted_sampler: bool = False,
+    val_fraction: float = 0.1,
+    subset_fraction: float = 1.0,
+    seed: int = 42,
+    image_size: int = 48,
+    crop_size: int = 44,
+    ten_crop_eval: bool = True,
+) -> tuple[dict[str, DataLoader], dict[str, Dataset]]:
+    """Build baseline dataloaders with train crops and optional TenCrop eval.
+
+    Training uses random 44x44 crops resized back to 48x48. Validation and test
+    can use TenCrop-style evaluation, returning a crop dimension that must be
+    averaged by crop-aware evaluation utilities.
+    """
+    data_dir = Path(data_dir)
+    train_dir = data_dir / "train"
+    test_dir = data_dir / "test"
+    if not train_dir.exists() or not test_dir.exists():
+        raise ValueError(f"Expected train and test folders under {data_dir}")
+
+    train_eval_dataset = ImageFolder(train_dir, transform=baseline_eval_transform(image_size=image_size))
+    target_transform = _imagefolder_target_transform(train_eval_dataset)
+    train_full_dataset = ImageFolder(
+        train_dir,
+        transform=baseline_crop_train_transform(image_size=image_size, crop_size=crop_size),
+        target_transform=target_transform,
+    )
+    train_eval_dataset.target_transform = target_transform
+
+    train_candidate_indices = stratified_subset_indices(
+        dataset_labels(train_full_dataset),
+        fraction=subset_fraction,
+        seed=seed,
+    )
+
+    val_size = int(len(train_candidate_indices) * val_fraction)
+    train_size = len(train_candidate_indices) - val_size
+    if train_size <= 0 or val_size <= 0:
+        raise ValueError("val_fraction must leave at least one train and one validation example")
+
+    generator = torch.Generator().manual_seed(seed)
+    shuffled_positions = torch.randperm(len(train_candidate_indices), generator=generator).tolist()
+    indices = [train_candidate_indices[position] for position in shuffled_positions]
+    train_indices = indices[:train_size]
+    val_indices = indices[train_size:]
+
+    eval_transform = (
+        baseline_tencrop_eval_transform(image_size=image_size, crop_size=crop_size)
+        if ten_crop_eval
+        else baseline_eval_transform(image_size=image_size)
+    )
+    val_dataset_full = ImageFolder(train_dir, transform=eval_transform, target_transform=target_transform)
+    train_subset = Subset(train_full_dataset, train_indices)
+    val_subset = Subset(val_dataset_full, val_indices)
+
+    test_dataset = ImageFolder(test_dir, transform=eval_transform)
     test_dataset.target_transform = _imagefolder_target_transform(test_dataset)
     test_indices = stratified_subset_indices(
         dataset_labels(test_dataset),

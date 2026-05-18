@@ -37,6 +37,27 @@ def collect_predictions(model, loader, device):
     return np.array(y_true), np.array(y_pred)
 
 
+@torch.no_grad()
+def collect_predictions_with_crops(model, loader, device):
+    """Collect predictions, averaging logits across TenCrop batches if present."""
+    model.eval()
+    y_true = []
+    y_pred = []
+
+    for images, labels in loader:
+        if images.ndim == 5:
+            batch_size, num_crops, channels, height, width = images.shape
+            images = images.view(-1, channels, height, width).to(device)
+            logits = model(images).view(batch_size, num_crops, -1).mean(dim=1)
+        else:
+            images = images.to(device)
+            logits = model(images)
+        y_pred.extend(logits.argmax(dim=1).cpu().numpy().tolist())
+        y_true.extend(labels.numpy().tolist())
+
+    return np.array(y_true), np.array(y_pred)
+
+
 def classification_metrics(y_true, y_pred) -> dict:
     """Compute FER2013 F1 scores and a per-class classification report.
 
@@ -86,7 +107,14 @@ def save_classification_report(y_true, y_pred, output_path: str | Path) -> pd.Da
     return frame
 
 
-def plot_confusion_matrix(y_true, y_pred, output_path: str | Path | None = None, normalize: bool = True):
+def plot_confusion_matrix(
+    y_true,
+    y_pred,
+    output_path: str | Path | None = None,
+    normalize: bool = True,
+    figsize: tuple[float, float] = (6, 4.5),
+    ax=None,
+):
     """Plot a FER2013 confusion matrix and optionally save it to disk.
 
     Args:
@@ -105,17 +133,25 @@ def plot_confusion_matrix(y_true, y_pred, output_path: str | Path | None = None,
     if normalize:
         cm = cm.astype(float) / np.maximum(cm.sum(axis=1, keepdims=True), 1)
 
-    plt.figure(figsize=(8, 6))
-    sns.heatmap(cm, annot=True, fmt=".2f" if normalize else "d", cmap="Blues", xticklabels=names, yticklabels=names)
-    plt.xlabel("Predicted")
-    plt.ylabel("True")
-    plt.tight_layout()
+    if ax is None:
+        _, ax = plt.subplots(figsize=figsize)
+    sns.heatmap(
+        cm,
+        annot=True,
+        fmt=".2f" if normalize else "d",
+        cmap="Blues",
+        xticklabels=names,
+        yticklabels=names,
+        ax=ax,
+    )
+    ax.set_xlabel("Predicted")
+    ax.set_ylabel("True")
 
     if output_path is not None:
         Path(output_path).parent.mkdir(parents=True, exist_ok=True)
-        plt.savefig(output_path, dpi=180, bbox_inches="tight")
+        ax.figure.savefig(output_path, dpi=180, bbox_inches="tight")
 
-    return plt.gca()
+    return ax
 
 
 def top_confusions(y_true, y_pred, top_n: int = 10) -> pd.DataFrame:
