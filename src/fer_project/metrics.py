@@ -154,6 +154,54 @@ def plot_confusion_matrix(
     return ax
 
 
+def plot_loss_curve(history: pd.DataFrame, title: str):
+    """Plot train and validation loss from an experiment history frame."""
+    ax = history.plot(
+        x="epoch",
+        y=["train_loss", "val_loss"],
+        marker="o",
+        figsize=(5, 3),
+        title=title,
+    )
+    ax.set_xlabel("Epoch")
+    ax.set_ylabel("Loss")
+    plt.tight_layout()
+    return ax
+
+
+def plot_training_and_confusion(
+    history: pd.DataFrame,
+    y_true,
+    y_pred,
+    title: str,
+    confusion_output_path: str | Path | None = None,
+):
+    """Plot loss curve and confusion matrix in one compact row."""
+    fig, axes = plt.subplots(1, 2, figsize=(10, 3.8))
+    history.plot(
+        x="epoch",
+        y=["train_loss", "val_loss"],
+        marker="o",
+        ax=axes[0],
+    )
+    axes[0].set_title("Loss")
+    axes[0].set_xlabel("Epoch")
+    axes[0].set_ylabel("Loss")
+
+    plot_confusion_matrix(
+        y_true,
+        y_pred,
+        output_path=confusion_output_path,
+        figsize=(4.8, 3.8),
+        ax=axes[1],
+    )
+    axes[1].set_title("Confusion Matrix")
+    fig.suptitle(title)
+    fig.tight_layout()
+    plt.show()
+    return fig, axes
+
+
 def top_confusions(y_true, y_pred, top_n: int = 10) -> pd.DataFrame:
     """Return the most common off-diagonal confusion pairs.
 
