@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from collections.abc import Sequence
+
 import torch
 from torch import nn
 from torchvision import models
@@ -58,7 +60,40 @@ class BaselineCNN(nn.Module):
         return self.classifier(self.features(x))
 
 
-def _replace_classifier(model: nn.Module, model_name: str, num_classes: int) -> nn.Module:
+def _build_mlp_classifier(
+    in_features: int,
+    num_classes: int,
+    hidden_layers: Sequence[int] | None = None,
+    dropout: float = 0.35,
+) -> nn.Module:
+    """Build either a linear or multi-layer classifier head."""
+    hidden_layers = list(hidden_layers or [])
+    if not hidden_layers:
+        return nn.Linear(in_features, num_classes)
+
+    layers: list[nn.Module] = []
+    current_features = in_features
+    for hidden_features in hidden_layers:
+        layers.extend(
+            [
+                nn.Linear(current_features, hidden_features),
+                nn.BatchNorm1d(hidden_features),
+                nn.ReLU(inplace=True),
+                nn.Dropout(dropout),
+            ]
+        )
+        current_features = hidden_features
+    layers.append(nn.Linear(current_features, num_classes))
+    return nn.Sequential(*layers)
+
+
+def _replace_classifier(
+    model: nn.Module,
+    model_name: str,
+    num_classes: int,
+    classifier_hidden_layers: Sequence[int] | None = None,
+    classifier_dropout: float = 0.35,
+) -> nn.Module:
     """Replace a torchvision model classifier with a FER2013 output layer.
 
     Args:
@@ -71,13 +106,28 @@ def _replace_classifier(model: nn.Module, model_name: str, num_classes: int) -> 
     """
     if model_name.startswith("resnet"):
         in_features = model.fc.in_features
-        model.fc = nn.Linear(in_features, num_classes)
+        model.fc = _build_mlp_classifier(
+            in_features,
+            num_classes,
+            hidden_layers=classifier_hidden_layers,
+            dropout=classifier_dropout,
+        )
     elif model_name.startswith("mobilenet"):
         in_features = model.classifier[-1].in_features
-        model.classifier[-1] = nn.Linear(in_features, num_classes)
+        model.classifier[-1] = _build_mlp_classifier(
+            in_features,
+            num_classes,
+            hidden_layers=classifier_hidden_layers,
+            dropout=classifier_dropout,
+        )
     elif model_name.startswith("efficientnet"):
         in_features = model.classifier[-1].in_features
-        model.classifier[-1] = nn.Linear(in_features, num_classes)
+        model.classifier[-1] = _build_mlp_classifier(
+            in_features,
+            num_classes,
+            hidden_layers=classifier_hidden_layers,
+            dropout=classifier_dropout,
+        )
     else:
         raise ValueError(f"Unsupported transfer model: {model_name}")
     return model
@@ -88,6 +138,8 @@ def build_transfer_model(
     num_classes: int = 7,
     pretrained: bool = True,
     freeze_backbone: bool = True,
+    classifier_hidden_layers: Sequence[int] | None = None,
+    classifier_dropout: float = 0.35,
 ) -> nn.Module:
     """Build a supported pretrained architecture for transfer learning.
 
@@ -117,7 +169,57 @@ def build_transfer_model(
         for parameter in model.parameters():
             parameter.requires_grad = False
 
-    model = _replace_classifier(model, model_name, num_classes)
+    model = _replace_classifier(
+        model,
+        model_name,
+        num_classes,
+        classifier_hidden_layers=classifier_hidden_layers,
+        classifier_dropout=classifier_dropout,
+    )
+    return model
+
+
+def set_resnet18_trainable_layers(model: nn.Module, unfreeze_from: str = "fc") -> nn.Module:
+    """Freeze ResNet18 then unfreeze a selected suffix of the network.
+
+    ``unfreeze_from`` supports ``"fc"``, ``"layer4"``, ``"layer3"``,
+    ``"layer2"``, ``"layer1"``, and ``"all"``.
+    """
+    order = ["fc", "layer4", "layer3", "layer2", "layer1", "all"]
+    if unfreeze_from not in order:
+        raise ValueError(f"unfreeze_from must be one of: {order}")
+
+    for parameter in model.parameters():
+        parameter.requires_grad = False
+
+    if unfreeze_from == "all":
+        for parameter in model.parameters():
+            parameter.requires_grad = True
+        return model
+
+    trainable_modules = ["fc", "layer4", "layer3", "layer2", "layer1"]
+    start = trainable_modules.index(unfreeze_from)
+    for module_name in trainable_modules[start::-1]:
+        module = getattr(model, module_name)
+        for parameter in module.parameters():
+            parameter.requires_grad = True
+    return model
+
+
+def replace_resnet18_classifier(
+    model: nn.Module,
+    num_classes: int = 7,
+    classifier_hidden_layers: Sequence[int] | None = None,
+    classifier_dropout: float = 0.35,
+) -> nn.Module:
+    """Replace a ResNet18 classifier head while keeping the backbone weights."""
+    in_features = model.fc.in_features
+    model.fc = _build_mlp_classifier(
+        in_features,
+        num_classes,
+        hidden_layers=classifier_hidden_layers,
+        dropout=classifier_dropout,
+    )
     return model
 
 
@@ -127,6 +229,8 @@ def build_model(
     transfer_model: str = "resnet18",
     pretrained: bool = True,
     freeze_backbone: bool = True,
+    classifier_hidden_layers: Sequence[int] | None = None,
+    classifier_dropout: float = 0.35,
 ) -> nn.Module:
     """Create the model requested by an experiment configuration.
 
@@ -149,5 +253,7 @@ def build_model(
             num_classes=num_classes,
             pretrained=pretrained,
             freeze_backbone=freeze_backbone,
+            classifier_hidden_layers=classifier_hidden_layers,
+            classifier_dropout=classifier_dropout,
         )
     raise ValueError("experiment must be 'baseline_cnn' or 'transfer'")

@@ -33,7 +33,7 @@ Justify ResNet18 clearly: it is a standard, moderate-size ImageNet-pretrained CN
 
 ## 4. Evaluation Protocol
 
-Use macro F1 as the primary model-selection metric. Report weighted F1 and per-class precision/recall/F1 as supporting metrics. Use confusion matrices, top confused class pairs, and loss curves for error and training-behavior analysis. Do not use accuracy for model selection or report conclusions.
+Use macro F1 as the primary model-selection metric. Report weighted F1 and per-class precision/recall/F1 as supporting metrics. Use confusion matrices, top confused class pairs, and loss curves for error and training-behavior analysis.
 
 ## 5. Results
 

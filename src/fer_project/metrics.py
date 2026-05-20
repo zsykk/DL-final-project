@@ -69,16 +69,18 @@ def classification_metrics(y_true, y_pred) -> dict:
         Dictionary containing macro F1, weighted F1, and a scikit-learn report.
     """
     target_names = [EMOTION_LABELS[i] for i in range(len(EMOTION_LABELS))]
+    report = classification_report(
+        y_true,
+        y_pred,
+        target_names=target_names,
+        output_dict=True,
+        zero_division=0,
+    )
+    kept_rows = target_names + ["macro avg", "weighted avg"]
     return {
         "macro_f1": f1_score(y_true, y_pred, average="macro", zero_division=0),
         "weighted_f1": f1_score(y_true, y_pred, average="weighted", zero_division=0),
-        "report": classification_report(
-            y_true,
-            y_pred,
-            target_names=target_names,
-            output_dict=True,
-            zero_division=0,
-        ),
+        "report": {row: report[row] for row in kept_rows},
     }
 
 
@@ -102,6 +104,7 @@ def save_classification_report(y_true, y_pred, output_path: str | Path) -> pd.Da
         zero_division=0,
     )
     frame = pd.DataFrame(report).transpose()
+    frame = frame.loc[target_names + ["macro avg", "weighted avg"]]
     Path(output_path).parent.mkdir(parents=True, exist_ok=True)
     frame.to_csv(output_path)
     return frame

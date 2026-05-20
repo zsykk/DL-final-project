@@ -88,9 +88,9 @@ def build_transforms(config: TransformConfig, input_is_pil: bool = False) -> tra
 def baseline_crop_train_transform(image_size: int = 48, crop_size: int = 44) -> transforms.Compose:
     """Build the crop-based training transform used by the baseline CNN.
 
-    The teacher baseline trains on random 44x44 crops. This project baseline has
-    a fixed 48x48 classifier head, so crops are resized back to 48x48 after
-    cropping to keep the existing architecture runnable.
+    This project baseline has a fixed 48x48 classifier head, so crops are
+    resized back to 48x48 after cropping to keep the existing architecture
+    runnable.
     """
     return transforms.Compose(
         [

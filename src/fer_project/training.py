@@ -4,7 +4,10 @@ from pathlib import Path
 
 import torch
 from torch import nn
+from sklearn.metrics import f1_score
 from tqdm.auto import tqdm
+
+from .models import set_resnet18_trainable_layers
 
 
 class FocalLoss(nn.Module):
@@ -38,8 +41,22 @@ def build_criterion(
     raise ValueError("loss_name must be 'cross_entropy' or 'focal'")
 
 
+def _loss_f1_metrics(total_loss: float, total: int, y_true: list[int], y_pred: list[int]) -> dict:
+    """Build loss/F1 metrics for an epoch or evaluation split."""
+    return {
+        "loss": total_loss / total,
+        "macro_f1": f1_score(y_true, y_pred, average="macro", zero_division=0),
+        "weighted_f1": f1_score(y_true, y_pred, average="weighted", zero_division=0),
+    }
+
+
+def should_log_epoch(epoch: int, epochs: int, log_every: int = 5) -> bool:
+    """Return whether an epoch should be printed to the console."""
+    return epoch % log_every == 0 or epoch == epochs
+
+
 def train_one_epoch(model, loader, criterion, optimizer, device):
-    """Run one supervised training epoch and report average metrics.
+    """Run one supervised training epoch and report loss/F1 metrics.
 
     Args:
         model: PyTorch model to optimize.
@@ -49,12 +66,13 @@ def train_one_epoch(model, loader, criterion, optimizer, device):
         device: Torch device where tensors and the model are placed.
 
     Returns:
-        Dictionary containing mean loss and accuracy for the epoch.
+        Dictionary containing mean loss, macro F1, and weighted F1 for the epoch.
     """
     model.train()
     total_loss = 0.0
-    correct = 0
     total = 0
+    y_true = []
+    y_pred = []
 
     for images, labels in tqdm(loader, leave=False):
         images = images.to(device)
@@ -67,18 +85,20 @@ def train_one_epoch(model, loader, criterion, optimizer, device):
         optimizer.step()
 
         total_loss += loss.item() * images.size(0)
-        correct += (logits.argmax(dim=1) == labels).sum().item()
         total += labels.size(0)
+        y_pred.extend(logits.argmax(dim=1).detach().cpu().tolist())
+        y_true.extend(labels.detach().cpu().tolist())
 
-    return {"loss": total_loss / total, "accuracy": correct / total}
+    return _loss_f1_metrics(total_loss, total, y_true, y_pred)
 
 
 def train_one_epoch_with_gradient_clip(model, loader, criterion, optimizer, device, grad_clip: float | None = None):
     """Run one training epoch and optionally clip gradients by value."""
     model.train()
     total_loss = 0.0
-    correct = 0
     total = 0
+    y_true = []
+    y_pred = []
 
     for images, labels in tqdm(loader, leave=False):
         images = images.to(device)
@@ -93,15 +113,16 @@ def train_one_epoch_with_gradient_clip(model, loader, criterion, optimizer, devi
         optimizer.step()
 
         total_loss += loss.item() * images.size(0)
-        correct += (logits.argmax(dim=1) == labels).sum().item()
         total += labels.size(0)
+        y_pred.extend(logits.argmax(dim=1).detach().cpu().tolist())
+        y_true.extend(labels.detach().cpu().tolist())
 
-    return {"loss": total_loss / total, "accuracy": correct / total}
+    return _loss_f1_metrics(total_loss, total, y_true, y_pred)
 
 
 @torch.no_grad()
-def evaluate_loss_accuracy(model, loader, criterion, device):
-    """Evaluate average loss and accuracy without updating model weights.
+def evaluate_loss_f1(model, loader, criterion, device):
+    """Evaluate loss and F1 without updating model weights.
 
     Args:
         model: PyTorch model to evaluate.
@@ -110,12 +131,13 @@ def evaluate_loss_accuracy(model, loader, criterion, device):
         device: Torch device where tensors and the model are placed.
 
     Returns:
-        Dictionary containing mean loss and accuracy for the dataloader.
+        Dictionary containing mean loss, macro F1, and weighted F1 for the dataloader.
     """
     model.eval()
     total_loss = 0.0
-    correct = 0
     total = 0
+    y_true = []
+    y_pred = []
 
     for images, labels in tqdm(loader, leave=False):
         images = images.to(device)
@@ -124,19 +146,21 @@ def evaluate_loss_accuracy(model, loader, criterion, device):
         loss = criterion(logits, labels)
 
         total_loss += loss.item() * images.size(0)
-        correct += (logits.argmax(dim=1) == labels).sum().item()
         total += labels.size(0)
+        y_pred.extend(logits.argmax(dim=1).cpu().tolist())
+        y_true.extend(labels.cpu().tolist())
 
-    return {"loss": total_loss / total, "accuracy": correct / total}
+    return _loss_f1_metrics(total_loss, total, y_true, y_pred)
 
 
 @torch.no_grad()
-def evaluate_loss_accuracy_with_crops(model, loader, criterion, device):
-    """Evaluate loss/accuracy, averaging logits across TenCrop batches if present."""
+def evaluate_loss_f1_with_crops(model, loader, criterion, device):
+    """Evaluate loss/F1, averaging logits across TenCrop batches if present."""
     model.eval()
     total_loss = 0.0
-    correct = 0
     total = 0
+    y_true = []
+    y_pred = []
 
     for images, labels in tqdm(loader, leave=False):
         labels = labels.to(device)
@@ -150,10 +174,11 @@ def evaluate_loss_accuracy_with_crops(model, loader, criterion, device):
         loss = criterion(logits, labels)
 
         total_loss += loss.item() * labels.size(0)
-        correct += (logits.argmax(dim=1) == labels).sum().item()
         total += labels.size(0)
+        y_pred.extend(logits.argmax(dim=1).cpu().tolist())
+        y_true.extend(labels.cpu().tolist())
 
-    return {"loss": total_loss / total, "accuracy": correct / total}
+    return _loss_f1_metrics(total_loss, total, y_true, y_pred)
 
 
 def format_epoch_metrics(row: dict) -> dict:
@@ -189,8 +214,7 @@ def fit(
             saved.
 
     Returns:
-        List of epoch metric dictionaries containing train and validation loss
-        and accuracy.
+        List of epoch metric dictionaries containing train/validation loss and F1.
     """
     model = model.to(device)
     trainable_params = [p for p in model.parameters() if p.requires_grad]
@@ -206,17 +230,20 @@ def fit(
 
     for epoch in range(1, epochs + 1):
         train_metrics = train_one_epoch(model, loaders["train"], criterion, optimizer, device)
-        val_metrics = evaluate_loss_accuracy(model, loaders["val"], criterion, device)
+        val_metrics = evaluate_loss_f1(model, loaders["val"], criterion, device)
 
         row = {
             "epoch": epoch,
             "train_loss": train_metrics["loss"],
-            "train_accuracy": train_metrics["accuracy"],
+            "train_macro_f1": train_metrics["macro_f1"],
+            "train_weighted_f1": train_metrics["weighted_f1"],
             "val_loss": val_metrics["loss"],
-            "val_accuracy": val_metrics["accuracy"],
+            "val_macro_f1": val_metrics["macro_f1"],
+            "val_weighted_f1": val_metrics["weighted_f1"],
         }
         history.append(row)
-        print(format_epoch_metrics(row))
+        if should_log_epoch(epoch, epochs):
+            print(format_epoch_metrics(row))
 
         if checkpoint_path is not None and val_metrics["loss"] < best_val_loss:
             best_val_loss = val_metrics["loss"]
@@ -275,19 +302,22 @@ def fit_adamw_two_stage(
     history_stage2 = []
     for epoch in range(1, stage2_epochs + 1):
         train_metrics = train_one_epoch(model, loaders["train"], criterion, optimizer, device)
-        val_metrics = evaluate_loss_accuracy(model, loaders["val"], criterion, device)
+        val_metrics = evaluate_loss_f1(model, loaders["val"], criterion, device)
         row = {
             "stage": "stage2_lower_lr",
             "epoch": stage1_epochs + epoch,
             "stage_epoch": epoch,
             "lr": stage2_lr,
             "train_loss": train_metrics["loss"],
-            "train_accuracy": train_metrics["accuracy"],
+            "train_macro_f1": train_metrics["macro_f1"],
+            "train_weighted_f1": train_metrics["weighted_f1"],
             "val_loss": val_metrics["loss"],
-            "val_accuracy": val_metrics["accuracy"],
+            "val_macro_f1": val_metrics["macro_f1"],
+            "val_weighted_f1": val_metrics["weighted_f1"],
         }
         history_stage2.append(row)
-        print(format_epoch_metrics(row))
+        if should_log_epoch(epoch, stage2_epochs):
+            print(format_epoch_metrics(row))
 
         if checkpoint_path is not None and val_metrics["loss"] < best_val_loss:
             best_val_loss = val_metrics["loss"]
@@ -319,14 +349,14 @@ def fit_sgd_schedule(
     focal_gamma: float = 2.0,
     grad_clip: float | None = 0.1,
     lr_decay_start: int = 20,
-    lr_decay_every: int = 5,
-    lr_decay_rate: float = 0.9,
+    lr_decay_every: int = 10,
+    lr_decay_rate: float = 0.1,
     checkpoint_path: str | Path | None = None,
     initial_best_val_loss: float = float("inf"),
     epoch_offset: int = 0,
     stage_name: str = "stage",
 ):
-    """Train with SGD, value clipping, LR decay, and best-checkpoint saving."""
+    """Train with SGD, value clipping, internal LR decay, and best-checkpoint saving."""
     model = model.to(device)
     trainable_params = [p for p in model.parameters() if p.requires_grad]
     optimizer = torch.optim.SGD(trainable_params, lr=lr, momentum=momentum, weight_decay=weight_decay)
@@ -356,7 +386,7 @@ def fit_sgd_schedule(
             device,
             grad_clip=grad_clip,
         )
-        val_metrics = evaluate_loss_accuracy_with_crops(model, loaders["val"], criterion, device)
+        val_metrics = evaluate_loss_f1_with_crops(model, loaders["val"], criterion, device)
 
         row = {
             "stage": stage_name,
@@ -364,16 +394,92 @@ def fit_sgd_schedule(
             "stage_epoch": local_epoch,
             "lr": current_lr,
             "train_loss": train_metrics["loss"],
-            "train_accuracy": train_metrics["accuracy"],
+            "train_macro_f1": train_metrics["macro_f1"],
+            "train_weighted_f1": train_metrics["weighted_f1"],
             "val_loss": val_metrics["loss"],
-            "val_accuracy": val_metrics["accuracy"],
+            "val_macro_f1": val_metrics["macro_f1"],
+            "val_weighted_f1": val_metrics["weighted_f1"],
         }
         history.append(row)
-        print(format_epoch_metrics(row))
+        if should_log_epoch(local_epoch, epochs):
+            print(format_epoch_metrics(row))
 
         if checkpoint_path is not None and val_metrics["loss"] < best_val_loss:
             best_val_loss = val_metrics["loss"]
             Path(checkpoint_path).parent.mkdir(parents=True, exist_ok=True)
             torch.save(model.state_dict(), checkpoint_path)
 
+    return history, best_val_loss
+
+
+def fit_resnet18_gradual_unfreeze(
+    model,
+    loaders,
+    device,
+    unfreeze_stages: list[str] | tuple[str, ...] = ("fc", "layer4", "layer3", "layer2", "all"),
+    epochs_per_stage: int = 5,
+    lr_by_stage: dict[str, float] | None = None,
+    weight_decay: float = 1e-4,
+    class_weight: torch.Tensor | None = None,
+    loss_name: str = "cross_entropy",
+    focal_gamma: float = 2.0,
+    checkpoint_path: str | Path | None = None,
+):
+    """Gradually unfreeze ResNet18 stages and save the best validation-loss model."""
+    lr_by_stage = lr_by_stage or {
+        "fc": 1e-3,
+        "layer4": 5e-4,
+        "layer3": 1e-4,
+        "layer2": 5e-5,
+        "layer1": 2e-5,
+        "all": 1e-5,
+    }
+    model = model.to(device)
+    criterion = build_criterion(
+        loss_name=loss_name,
+        class_weight=class_weight.to(device) if class_weight is not None else None,
+        focal_gamma=focal_gamma,
+    )
+    history = []
+    best_val_loss = float("inf")
+    global_epoch = 0
+
+    for stage_name in unfreeze_stages:
+        if checkpoint_path is not None and Path(checkpoint_path).exists():
+            model.load_state_dict(torch.load(checkpoint_path, map_location=device))
+        set_resnet18_trainable_layers(model, stage_name)
+        trainable_params = [p for p in model.parameters() if p.requires_grad]
+        optimizer = torch.optim.AdamW(
+            trainable_params,
+            lr=lr_by_stage.get(stage_name, 1e-5),
+            weight_decay=weight_decay,
+        )
+
+        for stage_epoch in range(1, epochs_per_stage + 1):
+            global_epoch += 1
+            train_metrics = train_one_epoch(model, loaders["train"], criterion, optimizer, device)
+            val_metrics = evaluate_loss_f1(model, loaders["val"], criterion, device)
+            row = {
+                "stage": f"unfreeze_{stage_name}",
+                "epoch": global_epoch,
+                "stage_epoch": stage_epoch,
+                "lr": optimizer.param_groups[0]["lr"],
+                "train_loss": train_metrics["loss"],
+                "train_macro_f1": train_metrics["macro_f1"],
+                "train_weighted_f1": train_metrics["weighted_f1"],
+                "val_loss": val_metrics["loss"],
+                "val_macro_f1": val_metrics["macro_f1"],
+                "val_weighted_f1": val_metrics["weighted_f1"],
+            }
+            history.append(row)
+            if should_log_epoch(stage_epoch, epochs_per_stage):
+                print(format_epoch_metrics(row))
+
+            if checkpoint_path is not None and val_metrics["loss"] < best_val_loss:
+                best_val_loss = val_metrics["loss"]
+                Path(checkpoint_path).parent.mkdir(parents=True, exist_ok=True)
+                torch.save(model.state_dict(), checkpoint_path)
+
+    if checkpoint_path is not None and Path(checkpoint_path).exists():
+        model.load_state_dict(torch.load(checkpoint_path, map_location=device))
     return history, best_val_loss

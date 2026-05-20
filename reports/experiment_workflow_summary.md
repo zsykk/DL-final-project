@@ -50,7 +50,7 @@ Reason: pretrained models already learned useful visual features from ImageNet. 
 
 Each experiment saves the best checkpoint, classification report, top confusions, training history, loss curve, and confusion matrix.
 
-Reason: accuracy alone is not enough for FER2013. Macro F1, per-class scores, and confusion patterns show whether the model only performs well on common/easy classes or truly improves expression recognition across classes.
+Reason: one aggregate score is not enough for FER2013. Macro F1, per-class scores, and confusion patterns show whether the model only performs well on common/easy classes or truly improves expression recognition across classes.
 
 ## Final Experiment Logic
 
