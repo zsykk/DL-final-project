@@ -186,6 +186,25 @@ def format_epoch_metrics(row: dict) -> dict:
     return {key: round(value, 4) if isinstance(value, float) else value for key, value in row.items()}
 
 
+def is_better_checkpoint(
+    val_metrics: dict,
+    best_val_macro_f1: float,
+    best_val_loss: float,
+) -> bool:
+    """Select checkpoints by validation macro F1, using validation loss as a tie-breaker."""
+    current_macro_f1 = val_metrics["macro_f1"]
+    current_loss = val_metrics["loss"]
+    return current_macro_f1 > best_val_macro_f1 or (
+        current_macro_f1 == best_val_macro_f1 and current_loss < best_val_loss
+    )
+
+
+def best_checkpoint_metrics(history: list[dict]) -> tuple[float, float]:
+    """Return the validation macro F1 and loss for the checkpoint-selected history row."""
+    best_row = max(history, key=lambda row: (row["val_macro_f1"], -row["val_loss"]))
+    return best_row["val_macro_f1"], best_row["val_loss"]
+
+
 def fit(
     model,
     loaders,
@@ -210,8 +229,8 @@ def fit(
         class_weight: Optional per-class weights for cross-entropy loss.
         loss_name: Either ``"cross_entropy"`` or ``"focal"``.
         focal_gamma: Focusing parameter used when ``loss_name="focal"``.
-        checkpoint_path: Optional path where the best validation-loss weights are
-            saved.
+        checkpoint_path: Optional path where the best validation macro-F1 weights
+            are saved, using validation loss as the tie-breaker.
 
     Returns:
         List of epoch metric dictionaries containing train/validation loss and F1.
@@ -226,6 +245,7 @@ def fit(
     )
 
     history = []
+    best_val_macro_f1 = float("-inf")
     best_val_loss = float("inf")
 
     for epoch in range(1, epochs + 1):
@@ -245,7 +265,8 @@ def fit(
         if should_log_epoch(epoch, epochs):
             print(format_epoch_metrics(row))
 
-        if checkpoint_path is not None and val_metrics["loss"] < best_val_loss:
+        if checkpoint_path is not None and is_better_checkpoint(val_metrics, best_val_macro_f1, best_val_loss):
+            best_val_macro_f1 = val_metrics["macro_f1"]
             best_val_loss = val_metrics["loss"]
             Path(checkpoint_path).parent.mkdir(parents=True, exist_ok=True)
             torch.save(model.state_dict(), checkpoint_path)
@@ -270,8 +291,9 @@ def fit_adamw_two_stage(
     """Train with AdamW in two stages, reloading the best stage-1 checkpoint.
 
     Stage 1 adapts the model at the main learning rate. Stage 2 reloads the best
-    validation-loss checkpoint from stage 1 and continues with a lower learning
-    rate, only overwriting the checkpoint if validation loss improves further.
+    validation macro-F1 checkpoint from stage 1 and continues with a lower
+    learning rate, only overwriting the checkpoint if macro F1 improves, or if
+    macro F1 ties and validation loss is lower.
     """
     history_stage1 = fit(
         model,
@@ -285,7 +307,7 @@ def fit_adamw_two_stage(
         focal_gamma=focal_gamma,
         checkpoint_path=checkpoint_path,
     )
-    best_val_loss = min(row["val_loss"] for row in history_stage1)
+    best_val_macro_f1, best_val_loss = best_checkpoint_metrics(history_stage1)
 
     if checkpoint_path is not None:
         model.load_state_dict(torch.load(checkpoint_path, map_location=device))
@@ -319,7 +341,8 @@ def fit_adamw_two_stage(
         if should_log_epoch(epoch, stage2_epochs):
             print(format_epoch_metrics(row))
 
-        if checkpoint_path is not None and val_metrics["loss"] < best_val_loss:
+        if checkpoint_path is not None and is_better_checkpoint(val_metrics, best_val_macro_f1, best_val_loss):
+            best_val_macro_f1 = val_metrics["macro_f1"]
             best_val_loss = val_metrics["loss"]
             Path(checkpoint_path).parent.mkdir(parents=True, exist_ok=True)
             torch.save(model.state_dict(), checkpoint_path)
@@ -352,6 +375,7 @@ def fit_sgd_schedule(
     lr_decay_every: int = 10,
     lr_decay_rate: float = 0.1,
     checkpoint_path: str | Path | None = None,
+    initial_best_val_macro_f1: float = float("-inf"),
     initial_best_val_loss: float = float("inf"),
     epoch_offset: int = 0,
     stage_name: str = "stage",
@@ -367,6 +391,7 @@ def fit_sgd_schedule(
     )
 
     history = []
+    best_val_macro_f1 = initial_best_val_macro_f1
     best_val_loss = initial_best_val_loss
 
     for local_epoch in range(1, epochs + 1):
@@ -404,7 +429,8 @@ def fit_sgd_schedule(
         if should_log_epoch(local_epoch, epochs):
             print(format_epoch_metrics(row))
 
-        if checkpoint_path is not None and val_metrics["loss"] < best_val_loss:
+        if checkpoint_path is not None and is_better_checkpoint(val_metrics, best_val_macro_f1, best_val_loss):
+            best_val_macro_f1 = val_metrics["macro_f1"]
             best_val_loss = val_metrics["loss"]
             Path(checkpoint_path).parent.mkdir(parents=True, exist_ok=True)
             torch.save(model.state_dict(), checkpoint_path)
@@ -425,7 +451,7 @@ def fit_resnet18_gradual_unfreeze(
     focal_gamma: float = 2.0,
     checkpoint_path: str | Path | None = None,
 ):
-    """Gradually unfreeze ResNet18 stages and save the best validation-loss model."""
+    """Gradually unfreeze ResNet18 stages and save the best validation macro-F1 model."""
     lr_by_stage = lr_by_stage or {
         "fc": 1e-3,
         "layer4": 5e-4,
@@ -441,6 +467,7 @@ def fit_resnet18_gradual_unfreeze(
         focal_gamma=focal_gamma,
     )
     history = []
+    best_val_macro_f1 = float("-inf")
     best_val_loss = float("inf")
     global_epoch = 0
 
@@ -475,7 +502,8 @@ def fit_resnet18_gradual_unfreeze(
             if should_log_epoch(stage_epoch, epochs_per_stage):
                 print(format_epoch_metrics(row))
 
-            if checkpoint_path is not None and val_metrics["loss"] < best_val_loss:
+            if checkpoint_path is not None and is_better_checkpoint(val_metrics, best_val_macro_f1, best_val_loss):
+                best_val_macro_f1 = val_metrics["macro_f1"]
                 best_val_loss = val_metrics["loss"]
                 Path(checkpoint_path).parent.mkdir(parents=True, exist_ok=True)
                 torch.save(model.state_dict(), checkpoint_path)
