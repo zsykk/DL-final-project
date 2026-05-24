@@ -1,0 +1,18 @@
+{
+  "name": "resnet18_small_classifier_focal",
+  "model": "resnet18",
+  "source_checkpoint": "/kaggle/working/DL-final-project/results/checkpoints/resnet18_small_classifier.pt",
+  "classifier_hidden_layers": [
+    256
+  ],
+  "classifier_shape": "512 -> 256 -> 7",
+  "unfreeze_from": "layer4",
+  "epochs": 15,
+  "lr": 5e-05,
+  "use_class_weights": false,
+  "weighted_sampler": false,
+  "loss_name": "focal",
+  "focal_gamma": 1.0,
+  "selection_rule": "highest validation macro F1; lower validation loss tie-breaker",
+  "checkpoint": "/kaggle/working/DL-final-project/results/checkpoints/resnet18_small_classifier_focal.pt"
+}
