@@ -13,40 +13,60 @@ class BaselineCNN(nn.Module):
     Args:
         num_classes: Number of emotion classes predicted by the final layer.
         dropout: Dropout probability used before the final classifier layer.
+        feature_channels: Output channels for each convolutional block.
+        block_depths: Number of convolutional layers in each block.
+        dropout2d: Spatial dropout used after each pooling block.
+        classifier_hidden_layers: Hidden layer widths for the classifier head.
     """
 
-    def __init__(self, num_classes: int = 7, dropout: float = 0.35) -> None:
+    def __init__(
+        self,
+        num_classes: int = 7,
+        dropout: float = 0.35,
+        feature_channels: Sequence[int] = (32, 64, 128),
+        block_depths: Sequence[int] = (2, 2, 1),
+        dropout2d: Sequence[float] = (0.15, 0.20, 0.0),
+        classifier_hidden_layers: Sequence[int] = (256,),
+    ) -> None:
         """Initialize feature extraction and classification layers."""
         super().__init__()
-        self.features = nn.Sequential(
-            nn.Conv2d(1, 32, kernel_size=3, padding=1),
-            nn.BatchNorm2d(32),
-            nn.ReLU(inplace=True),
-            nn.Conv2d(32, 32, kernel_size=3, padding=1),
-            nn.BatchNorm2d(32),
-            nn.ReLU(inplace=True),
-            nn.MaxPool2d(2),
-            nn.Dropout2d(0.15),
-            nn.Conv2d(32, 64, kernel_size=3, padding=1),
-            nn.BatchNorm2d(64),
-            nn.ReLU(inplace=True),
-            nn.Conv2d(64, 64, kernel_size=3, padding=1),
-            nn.BatchNorm2d(64),
-            nn.ReLU(inplace=True),
-            nn.MaxPool2d(2),
-            nn.Dropout2d(0.20),
-            nn.Conv2d(64, 128, kernel_size=3, padding=1),
-            nn.BatchNorm2d(128),
-            nn.ReLU(inplace=True),
-            nn.MaxPool2d(2),
-        )
-        self.classifier = nn.Sequential(
-            nn.Flatten(),
-            nn.Linear(128 * 6 * 6, 256),
-            nn.ReLU(inplace=True),
-            nn.Dropout(dropout),
-            nn.Linear(256, num_classes),
-        )
+        if len(feature_channels) != len(block_depths):
+            raise ValueError("feature_channels and block_depths must have the same length")
+        if len(dropout2d) != len(feature_channels):
+            raise ValueError("dropout2d must have one value per convolutional block")
+
+        layers: list[nn.Module] = []
+        in_channels = 1
+        for out_channels, depth, block_dropout in zip(feature_channels, block_depths, dropout2d):
+            for _ in range(depth):
+                layers.extend(
+                    [
+                        nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=1),
+                        nn.BatchNorm2d(out_channels),
+                        nn.ReLU(inplace=True),
+                    ]
+                )
+                in_channels = out_channels
+            layers.append(nn.MaxPool2d(2))
+            if block_dropout > 0:
+                layers.append(nn.Dropout2d(block_dropout))
+
+        spatial_size = 48 // (2 ** len(feature_channels))
+        self.features = nn.Sequential(*layers)
+
+        classifier_layers: list[nn.Module] = [nn.Flatten()]
+        in_features = feature_channels[-1] * spatial_size * spatial_size
+        for hidden_features in classifier_hidden_layers:
+            classifier_layers.extend(
+                [
+                    nn.Linear(in_features, hidden_features),
+                    nn.ReLU(inplace=True),
+                    nn.Dropout(dropout),
+                ]
+            )
+            in_features = hidden_features
+        classifier_layers.append(nn.Linear(in_features, num_classes))
+        self.classifier = nn.Sequential(*classifier_layers)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Return class logits for a batch of image tensors.
@@ -229,6 +249,11 @@ def build_model(
     transfer_model: str = "resnet18",
     pretrained: bool = True,
     freeze_backbone: bool = True,
+    baseline_feature_channels: Sequence[int] = (32, 64, 128),
+    baseline_block_depths: Sequence[int] = (2, 2, 1),
+    baseline_dropout2d: Sequence[float] = (0.15, 0.20, 0.0),
+    baseline_classifier_hidden_layers: Sequence[int] = (256,),
+    baseline_dropout: float = 0.35,
     classifier_hidden_layers: Sequence[int] | None = None,
     classifier_dropout: float = 0.35,
 ) -> nn.Module:
@@ -246,7 +271,14 @@ def build_model(
         A PyTorch module ready for training or evaluation.
     """
     if experiment == "baseline_cnn":
-        return BaselineCNN(num_classes=num_classes)
+        return BaselineCNN(
+            num_classes=num_classes,
+            dropout=baseline_dropout,
+            feature_channels=baseline_feature_channels,
+            block_depths=baseline_block_depths,
+            dropout2d=baseline_dropout2d,
+            classifier_hidden_layers=baseline_classifier_hidden_layers,
+        )
     if experiment == "transfer":
         return build_transfer_model(
             model_name=transfer_model,

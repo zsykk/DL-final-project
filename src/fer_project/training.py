@@ -371,19 +371,29 @@ def fit_sgd_schedule(
     loss_name: str = "cross_entropy",
     focal_gamma: float = 2.0,
     grad_clip: float | None = 0.1,
-    lr_decay_start: int = 20,
-    lr_decay_every: int = 10,
     lr_decay_rate: float = 0.1,
+    lr_plateau_patience: int = 5,
+    lr_plateau_threshold: float = 1e-3,
+    min_lr: float = 1e-6,
     checkpoint_path: str | Path | None = None,
     initial_best_val_macro_f1: float = float("-inf"),
     initial_best_val_loss: float = float("inf"),
     epoch_offset: int = 0,
     stage_name: str = "stage",
 ):
-    """Train with SGD, value clipping, internal LR decay, and best-checkpoint saving."""
+    """Train with SGD, value clipping, plateau LR decay, and best-checkpoint saving."""
     model = model.to(device)
     trainable_params = [p for p in model.parameters() if p.requires_grad]
     optimizer = torch.optim.SGD(trainable_params, lr=lr, momentum=momentum, weight_decay=weight_decay)
+    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+        optimizer,
+        mode="min",
+        factor=lr_decay_rate,
+        patience=lr_plateau_patience,
+        threshold=lr_plateau_threshold,
+        threshold_mode="rel",
+        min_lr=min_lr,
+    )
     criterion = build_criterion(
         loss_name=loss_name,
         class_weight=class_weight.to(device) if class_weight is not None else None,
@@ -395,13 +405,7 @@ def fit_sgd_schedule(
     best_val_loss = initial_best_val_loss
 
     for local_epoch in range(1, epochs + 1):
-        if local_epoch > lr_decay_start:
-            frac = (local_epoch - lr_decay_start) // lr_decay_every
-            current_lr = lr * (lr_decay_rate**frac)
-            for group in optimizer.param_groups:
-                group["lr"] = current_lr
-        else:
-            current_lr = lr
+        current_lr = optimizer.param_groups[0]["lr"]
 
         train_metrics = train_one_epoch_with_gradient_clip(
             model,
@@ -412,6 +416,7 @@ def fit_sgd_schedule(
             grad_clip=grad_clip,
         )
         val_metrics = evaluate_loss_f1_with_crops(model, loaders["val"], criterion, device)
+        scheduler.step(val_metrics["loss"])
 
         row = {
             "stage": stage_name,

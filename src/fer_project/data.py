@@ -230,6 +230,44 @@ def class_weights(labels: np.ndarray, num_classes: int = 7) -> torch.Tensor:
     return torch.tensor(weights, dtype=torch.float32)
 
 
+def oversampled_indices(
+    indices: list[int],
+    labels: np.ndarray,
+    num_classes: int = 7,
+    seed: int = 42,
+) -> list[int]:
+    """Duplicate minority-class indices so each class matches the majority size.
+
+    Args:
+        indices: Dataset indices available for training.
+        labels: Label array indexed in the same coordinate space as ``indices``.
+        num_classes: Total number of expected emotion classes.
+        seed: Random seed used when sampling duplicate minority examples.
+
+    Returns:
+        Shuffled training indices with minority examples repeated.
+    """
+    rng = np.random.default_rng(seed)
+    indices_array = np.array(indices)
+    index_labels = labels[indices_array]
+    counts = np.bincount(index_labels, minlength=num_classes)
+    target_count = counts.max()
+    oversampled: list[int] = []
+
+    for label in range(num_classes):
+        class_indices = indices_array[index_labels == label]
+        if len(class_indices) == 0:
+            continue
+        oversampled.extend(class_indices.tolist())
+        extra_count = target_count - len(class_indices)
+        if extra_count > 0:
+            extra_indices = rng.choice(class_indices, size=extra_count, replace=True)
+            oversampled.extend(extra_indices.tolist())
+
+    rng.shuffle(oversampled)
+    return oversampled
+
+
 def build_imagefolder_dataloaders(
     data_dir: str | Path,
     train_config: TransformConfig,
@@ -237,6 +275,7 @@ def build_imagefolder_dataloaders(
     batch_size: int = 128,
     num_workers: int = 2,
     weighted_sampler: bool = False,
+    oversample: bool = False,
     val_fraction: float = 0.1,
     subset_fraction: float = 1.0,
     seed: int = 42,
@@ -256,6 +295,8 @@ def build_imagefolder_dataloaders(
         num_workers: Number of worker processes used by each dataloader.
         weighted_sampler: Whether to sample training examples with class-balanced
             probabilities.
+        oversample: Whether to duplicate minority-class training examples so each
+            class has the same number of examples as the majority class.
         val_fraction: Fraction of the training folder held out for validation.
         subset_fraction: Class-stratified fraction of train and test images to
             keep for quick smoke tests.
@@ -295,7 +336,9 @@ def build_imagefolder_dataloaders(
     indices = [train_candidate_indices[position] for position in shuffled_positions]
     train_indices = indices[:train_size]
     val_indices = indices[train_size:]
-    train_subset = Subset(train_full_dataset, train_indices)
+    train_labels = dataset_labels(train_full_dataset)
+    train_sample_indices = oversampled_indices(train_indices, train_labels, seed=seed) if oversample else train_indices
+    train_subset = Subset(train_full_dataset, train_sample_indices)
     val_subset = Subset(train_eval_dataset, val_indices)
 
     test_dataset = ImageFolder(
@@ -345,6 +388,7 @@ def build_baseline_crop_dataloaders(
     batch_size: int = 128,
     num_workers: int = 2,
     weighted_sampler: bool = False,
+    oversample: bool = False,
     val_fraction: float = 0.1,
     subset_fraction: float = 1.0,
     seed: int = 42,
@@ -396,7 +440,9 @@ def build_baseline_crop_dataloaders(
         else baseline_eval_transform(image_size=image_size)
     )
     val_dataset_full = ImageFolder(train_dir, transform=eval_transform, target_transform=target_transform)
-    train_subset = Subset(train_full_dataset, train_indices)
+    train_labels = dataset_labels(train_full_dataset)
+    train_sample_indices = oversampled_indices(train_indices, train_labels, seed=seed) if oversample else train_indices
+    train_subset = Subset(train_full_dataset, train_sample_indices)
     val_subset = Subset(val_dataset_full, val_indices)
 
     test_dataset = ImageFolder(test_dir, transform=eval_transform)
