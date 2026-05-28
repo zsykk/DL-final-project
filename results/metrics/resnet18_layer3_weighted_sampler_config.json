@@ -9,7 +9,7 @@
   "classifier_shape": "512 -> 256 -> 7",
   "unfreeze_from": "layer3",
   "optimizer_name": "adamw",
-  "epochs": 15,
+  "epochs": 10,
   "lr": 0.0001,
   "weight_decay": 0.0001,
   "use_class_weights": false,
