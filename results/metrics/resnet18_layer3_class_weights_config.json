@@ -1,0 +1,23 @@
+{
+  "name": "resnet18_layer3_class_weights",
+  "model": "resnet18",
+  "source_weights": "ImageNet pretrained ResNet18; no previous FER2013 checkpoint loaded",
+  "classifier_hidden_layers": [
+    256
+  ],
+  "classifier_dropout": 0.4,
+  "classifier_shape": "512 -> 256 -> 7",
+  "unfreeze_from": "layer3",
+  "optimizer_name": "adamw",
+  "epochs": 10,
+  "lr": 0.0001,
+  "weight_decay": 0.0001,
+  "use_class_weights": true,
+  "weighted_sampler": false,
+  "loss_name": "cross_entropy",
+  "focal_gamma": 1.0,
+  "selection_rule": "highest validation macro F1; lower validation loss tie-breaker",
+  "train_transform": "224x224 grayscale replicated to 3 channels, augment=True, ImageNet normalization",
+  "eval_transform": "224x224 grayscale replicated to 3 channels, augment=False, ImageNet normalization",
+  "checkpoint": "/kaggle/working/DL-final-project/results/checkpoints/resnet18_layer3_class_weights.pt"
+}
