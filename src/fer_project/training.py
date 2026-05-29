@@ -10,6 +10,9 @@ from tqdm.auto import tqdm
 from .models import set_resnet18_trainable_layers
 
 
+CHECKPOINT_F1_TOLERANCE = 1e-3
+
+
 class FocalLoss(nn.Module):
     """Cross-entropy focal loss for imbalanced multi-class classification."""
 
@@ -190,18 +193,30 @@ def is_better_checkpoint(
     val_metrics: dict,
     best_val_macro_f1: float,
     best_val_loss: float,
+    f1_tolerance: float = CHECKPOINT_F1_TOLERANCE,
 ) -> bool:
-    """Select checkpoints by validation macro F1, using validation loss as a tie-breaker."""
+    """Select checkpoints by validation macro F1, using validation loss as a tie-breaker.
+
+    Small macro-F1 differences are treated as ties because validation F1 is noisy.
+    Within that tolerance band, lower validation loss wins.
+    """
     current_macro_f1 = val_metrics["macro_f1"]
     current_loss = val_metrics["loss"]
-    return current_macro_f1 > best_val_macro_f1 or (
-        current_macro_f1 == best_val_macro_f1 and current_loss < best_val_loss
+    return current_macro_f1 > best_val_macro_f1 + f1_tolerance or (
+        abs(current_macro_f1 - best_val_macro_f1) <= f1_tolerance and current_loss < best_val_loss
     )
 
 
 def best_checkpoint_metrics(history: list[dict]) -> tuple[float, float]:
     """Return the validation macro F1 and loss for the checkpoint-selected history row."""
-    best_row = max(history, key=lambda row: (row["val_macro_f1"], -row["val_loss"]))
+    best_row = history[0]
+    for row in history[1:]:
+        if is_better_checkpoint(
+            {"macro_f1": row["val_macro_f1"], "loss": row["val_loss"]},
+            best_row["val_macro_f1"],
+            best_row["val_loss"],
+        ):
+            best_row = row
     return best_row["val_macro_f1"], best_row["val_loss"]
 
 
