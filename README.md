@@ -1,20 +1,150 @@
-# Facial Expression Classifier
+# Facial Expression Recognition Final Project
 
-Deep learning final project for facial expression recognition on FER2013.
+Deep learning final project for facial expression recognition on FER2013, with
+baseline CNN, ResNet18, EfficientNet-B0, and CK+ external validation results.
 
-The project is organized for GPU training in Colab or Kaggle. The main work happens in notebooks, while reusable PyTorch helpers live in `src/fer_project`.
+## Reproduce Results
 
-## Project Goal
+Install the required Python packages:
 
-Compare a CNN trained from scratch against transfer learning strategies under a controlled experimental protocol. The final report should analyze not only accuracy, but also macro F1, weighted F1, per-class metrics, confusion matrices, and failure cases.
+```bash
+pip install -r requirements.txt
+```
 
-## Dataset
+### Fast Reproduction From Saved Results
 
-Recommended source:
+Regenerate the visual result assets from the saved experiment outputs:
 
-- FER2013 image-folder dataset on Kaggle
+```bash
+python scripts/reproduce_saved_results.py --group baseline
+python scripts/reproduce_saved_results.py --group resnet18
+python scripts/reproduce_saved_results.py --group efficientnet_b0
+python scripts/reproduce_saved_results.py --group ckplus_external
+```
 
-Expected extracted folder format:
+The script reads the original saved files from:
+
+```text
+results/metrics/
+results/figures/
+```
+
+and writes regenerated outputs to:
+
+```text
+reports/generated/saved_results/
+```
+
+This is the recommended reproduction path for grading because it is fast and
+does not retrain models. It recreates comparison tables, F1 plots, per-class
+heatmaps, training-loss curves, top-confusion tables, and grouped confusion
+matrix folders from the saved results.
+
+To regenerate every group with one command:
+
+```bash
+python scripts/reproduce_saved_results.py --group all
+```
+
+### Full Evaluation From Checkpoints
+
+To recompute metrics by loading the trained checkpoints and running inference on
+the datasets, use:
+
+```bash
+python scripts/evaluate_baseline.py
+python scripts/evaluate_resnet18.py
+python scripts/evaluate_efficientnet_b0.py
+python scripts/evaluate_ckplus_external.py
+```
+
+These scripts read from:
+
+```text
+results/checkpoints/
+data/raw/fer2013_images/
+data/raw/ckplus/
+```
+
+and write fresh evaluated outputs to:
+
+```text
+reports/generated/evaluated_results/
+```
+
+This path is slower than the saved-results script, but still much faster than
+training because it only runs model inference.
+
+## Saved Artifacts
+
+The experiment artifacts are organized as follows:
+
+```text
+results/
+  checkpoints/          # trained model weights
+  figures/              # original confusion matrices and result figures
+  metrics/              # original history, classification report, and confusion CSVs
+
+reports/generated/
+  saved_results/        # regenerated assets from reproduce_saved_results.py
+  evaluated_results/    # regenerated metrics/figures from evaluate_*.py
+```
+
+Generated files under `reports/generated/` are ignored by Git and can be
+recreated at any time with the commands above.
+
+RAF-DB outputs are excluded from the final reproduction workflow. The final
+external validation kept in this repository is CK+.
+
+## Project Structure
+
+```text
+data/
+  raw/                  # local datasets, ignored by Git
+  processed/            # optional derived data, ignored by Git
+notebooks/
+  01_data_exploration.ipynb
+  02_train_experiments.ipynb
+  03_resnet18_experiments.ipynb
+  04_efficientnet_b0_experiments.ipynb
+  06_external_validation_ckplus.ipynb
+scripts/
+  evaluate_baseline.py
+  evaluate_ckplus_external.py
+  evaluate_common.py
+  evaluate_efficientnet_b0.py
+  evaluate_resnet18.py
+  reproduce_saved_results.py
+src/fer_project/
+  data.py
+  metrics.py
+  models.py
+  training.py
+reports/
+  experiment_workflow_summary.md
+  report_outline.md
+```
+
+## Notebooks
+
+The notebooks preserve the original training and analysis workflow:
+
+```text
+notebooks/01_data_exploration.ipynb             # FER2013 class balance and examples
+notebooks/02_train_experiments.ipynb            # baseline CNN experiments
+notebooks/03_resnet18_experiments.ipynb         # ResNet18 experiments
+notebooks/04_efficientnet_b0_experiments.ipynb  # EfficientNet-B0 experiments
+notebooks/06_external_validation_ckplus.ipynb   # CK+ external validation
+```
+
+Training was run in notebooks because full training is slow and intended for
+Kaggle/Colab GPU execution. The reproduction script above is the fast way to
+recreate result tables and figures from the saved outputs.
+
+## Dataset For Notebook Runs
+
+The main dataset is the FER2013 image-folder dataset from Kaggle. For local
+notebook execution, place it here:
 
 ```text
 data/raw/fer2013_images/
@@ -36,100 +166,11 @@ data/raw/fer2013_images/
     surprise/
 ```
 
-The images are 48x48 grayscale face crops. The project maps folder names to the
-official FER2013 labels:
+The project uses the FER2013 label order:
 
 ```text
-0=Angry, 1=Disgust, 2=Fear, 3=Happy, 4=Sad, 5=Surprise, 6=Neutral
+0=angry, 1=disgust, 2=fear, 3=happy, 4=sad, 5=surprise, 6=neutral
 ```
 
-Place the extracted Kaggle dataset under `data/raw/fer2013_images` for local use.
-On Kaggle, set `DATA_DIR` in the notebook to the dataset input folder, for example:
-
-```python
-DATA_DIR = Path("/kaggle/input/fer2013")
-```
-
-## Structure
-
-```text
-data/
-  raw/                  # Extracted FER2013 image folders go here, ignored by Git
-  processed/            # Optional derived files
-notebooks/
-  01_data_exploration.ipynb
-  02_train_experiments.ipynb
-src/fer_project/
-  data.py               # FER2013 image-folder dataset, transforms, dataloaders
-  models.py             # Baseline CNN and transfer learning builders
-  training.py           # Training loop
-  metrics.py            # F1 reports and confusion matrices
-results/
-  checkpoints/          # Saved model weights, ignored by Git
-  figures/              # Confusion matrices and plots, ignored by Git
-  metrics/              # Saved metric tables, ignored by Git
-reports/
-  report_outline.md
-```
-
-## Recommended Experiments
-
-Run these in `notebooks/02_train_experiments.ipynb`:
-
-1. Baseline CNN on 48x48 grayscale images
-2. Baseline CNN with data augmentation
-3. ResNet18 transfer learning with frozen backbone
-4. ResNet18 transfer learning with fine-tuning
-5. Baseline CNN with augmentation and class-weighted loss
-
-Before running full experiments, start with a smoke test that uses one epoch and
-a small class-stratified subset:
-
-```python
-smoke_config = {**EXPERIMENTS[0], "epochs": 1}
-history, report = run_experiment(
-    smoke_config,
-    batch_size=32,
-    num_workers=0,
-    subset_fraction=0.05,
-)
-```
-
-Increase `subset_fraction` gradually, for example `0.05`, `0.20`, then `1.0`,
-once the pipeline runs without errors.
-
-## Why Preprocessing Is Needed
-
-FER2013 images are already split into class folders, but preprocessing is still
-needed. The notebooks load image folders, map emotion names to official label ids,
-normalize pixels, and transform images into tensors.
-
-For transfer learning, preprocessing is more important because pretrained models usually expect RGB 224x224 images. The notebook handles this by resizing 48x48 grayscale images to 224x224 and converting them to three channels.
-
-## Instructor Feedback Addressed
-
-This structure directly supports:
-
-- controlled comparison of baseline CNN and transfer learning
-- data augmentation ablation
-- frozen vs fine-tuned pretrained model comparison
-- class imbalance handling
-- macro F1, weighted F1, per-class precision/recall/F1
-- confusion matrix and error analysis
-
-## Running on Colab or Kaggle
-
-Install dependencies if needed:
-
-```python
-!pip install -q torch torchvision pandas scikit-learn matplotlib seaborn tqdm
-```
-
-Then open:
-
-```text
-notebooks/01_data_exploration.ipynb
-notebooks/02_train_experiments.ipynb
-```
-
-Start with the data exploration notebook, then train one experiment as a smoke test before running the full experiment list.
+For Kaggle or Colab, set the notebook `DATA_DIR` variable to the dataset input
+path before running training or evaluation cells.

@@ -10,9 +10,11 @@ data/processed/*
 results/checkpoints/*
 results/figures/*
 results/metrics/*
+reports/generated/*
 
 !data/raw/.gitkeep
 !data/processed/.gitkeep
 !results/checkpoints/.gitkeep
 !results/figures/.gitkeep
 !results/metrics/.gitkeep
+!reports/generated/.gitkeep
