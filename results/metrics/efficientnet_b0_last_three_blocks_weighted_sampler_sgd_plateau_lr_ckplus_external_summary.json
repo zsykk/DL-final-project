@@ -1,0 +1,37 @@
+{
+  "experiment": "efficientnet_b0_last_three_blocks_weighted_sampler_sgd_plateau_lr_ckplus_external",
+  "purpose": "zero-shot external validation on CK+ for EfficientNet-B0",
+  "checkpoint_path": "/kaggle/working/DL-final-project/results/checkpoints/efficientnet_b0_last_three_blocks_weighted_sampler_sgd_plateau_lr.pt",
+  "ckplus_root": "/kaggle/input/datasets/shuvoalok/ck-dataset",
+  "num_images_found": 981,
+  "num_images_evaluated": 927,
+  "included_labels": [
+    "angry",
+    "disgust",
+    "fear",
+    "happy",
+    "sad",
+    "surprise"
+  ],
+  "excluded_labels": [
+    "contempt",
+    "neutral"
+  ],
+  "macro_f1": 0.5818853318285614,
+  "weighted_f1": 0.6763694275732213,
+  "fer_labels": [
+    "angry",
+    "disgust",
+    "fear",
+    "happy",
+    "sad",
+    "surprise",
+    "neutral"
+  ],
+  "transfer_model": "efficientnet_b0",
+  "classifier_hidden_layers": [
+    256
+  ],
+  "classifier_dropout": 0.4,
+  "preprocessing": "224x224 grayscale replicated to 3 channels, ImageNet normalization"
+}
