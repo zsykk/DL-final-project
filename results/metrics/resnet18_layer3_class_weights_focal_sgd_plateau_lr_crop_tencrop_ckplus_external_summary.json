@@ -1,0 +1,49 @@
+{
+  "experiment": "resnet18_layer3_class_weights_focal_sgd_plateau_lr_crop_tencrop_ckplus_external",
+  "purpose": "zero-shot external validation on CK+",
+  "checkpoint_path": "/kaggle/working/DL-final-project/results/checkpoints/resnet18_layer3_class_weights_focal_sgd_plateau_lr_crop_tencrop.pt",
+  "classifier_hidden_layers": [
+    256
+  ],
+  "ckplus_root": "/kaggle/input/datasets/shuvoalok/ck-dataset",
+  "num_images_found": 981,
+  "num_images_evaluated": 927,
+  "included_labels": [
+    "angry",
+    "disgust",
+    "fear",
+    "happy",
+    "sad",
+    "surprise"
+  ],
+  "excluded_labels": [
+    "contempt",
+    "neutral"
+  ],
+  "rgb_macro_f1": 0.7070087540116096,
+  "rgb_weighted_f1": 0.7739306697371972,
+  "grayscale_macro_f1": 0.7070087540116096,
+  "grayscale_weighted_f1": 0.7739306697371972,
+  "fer_labels": [
+    "angry",
+    "disgust",
+    "fear",
+    "happy",
+    "sad",
+    "surprise",
+    "neutral"
+  ],
+  "ckplus_name_to_fer_name": {
+    "anger": "angry",
+    "angry": "angry",
+    "disgust": "disgust",
+    "fear": "fear",
+    "happy": "happy",
+    "happiness": "happy",
+    "sad": "sad",
+    "sadness": "sad",
+    "surprise": "surprise",
+    "surprised": "surprise",
+    "neutral": "neutral"
+  }
+}
