@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import sys
+import html
+import os
+import webbrowser
 from pathlib import Path
 
 import matplotlib
@@ -38,14 +41,36 @@ from fer_project.metrics import (  # noqa: E402
 from fer_project.models import build_model  # noqa: E402
 
 
+STATUS_ICONS = {
+    "processing": "\u23f3",
+    "done": "\u2705",
+}
+
+STATUS_FALLBACKS = {
+    "processing": "[...]",
+    "done": "[OK]",
+}
+
+
+def status(message: str, kind: str = "processing") -> None:
+    """Print a short, human-readable status line with a consistent icon."""
+    icon = STATUS_ICONS["done"] if kind == "done" else STATUS_ICONS["processing"]
+    line = f"{icon} {message}"
+    try:
+        print(line)
+    except UnicodeEncodeError:
+        fallback = STATUS_FALLBACKS["done"] if kind == "done" else STATUS_FALLBACKS["processing"]
+        print(f"{fallback} {message}")
+
+
 def ensure_fer_test_loader(data_dir: Path, transform, batch_size: int, num_workers: int) -> DataLoader:
     test_dir = data_dir / "test"
     if not test_dir.exists():
         raise FileNotFoundError(f"Expected FER2013 test folder at {test_dir}")
-    print(f"Loading FER2013 test images from {test_dir} ...")
+    status(f"Loading FER2013 test images from {test_dir} ...", "processing")
     dataset = ImageFolder(test_dir, transform=transform)
     dataset.target_transform = _imagefolder_target_transform(dataset)
-    print(f"Found {len(dataset)} test images across {len(dataset.classes)} folders.")
+    status(f"Found {len(dataset)} test images across {len(dataset.classes)} folders.", "done")
     return DataLoader(dataset, batch_size=batch_size, shuffle=False, num_workers=num_workers)
 
 
@@ -87,7 +112,7 @@ def baseline_eval_loader(data_dir: Path, batch_size: int, num_workers: int, ten_
 def load_state_dict(checkpoint_path: Path, device: torch.device) -> dict:
     if not checkpoint_path.exists():
         raise FileNotFoundError(f"Missing checkpoint: {checkpoint_path}")
-    print(f"Loading checkpoint: {checkpoint_path}")
+    status(f"Loading checkpoint: {checkpoint_path}", "load")
     return torch.load(checkpoint_path, map_location=device)
 
 
@@ -140,8 +165,8 @@ def save_evaluation_outputs(
     print(per_class[["f1-score", "support"]].round(4).to_string())
     print("\nTop confusions:")
     print(confusions.head(10).round(4).to_string(index=False))
-    print(f"\nSaved classification report: {output_dir / f'{name}_classification_report.csv'}")
-    print(f"Saved confusion matrix: {output_dir / f'{name}_confusion_matrix.png'}")
+    status(f"Saved classification report: {output_dir / f'{name}_classification_report.csv'}", "save")
+    status(f"Saved confusion matrix: {output_dir / f'{name}_confusion_matrix.png'}", "save")
 
 
 def evaluate_model(
@@ -152,17 +177,18 @@ def evaluate_model(
     output_dir: Path,
     use_crops: bool = False,
 ) -> None:
-    print(f"\nStarting evaluation: {name}")
-    print(f"Device: {device}; batches: {len(loader)}; crop averaging: {use_crops}")
+    print()
+    status(f"Starting evaluation: {name}", "processing")
+    status(f"Device: {device}; batches: {len(loader)}; crop averaging: {use_crops}", "device")
     model = model.to(device)
     model.eval()
     if use_crops:
         y_true, y_pred = collect_predictions_with_crops(model, loader, device)
     else:
         y_true, y_pred = collect_predictions(model, loader, device)
-    print(f"Finished inference for {name}; saving metrics and plots...")
+    status(f"Finished inference for {name}; saving metrics and plots...", "save")
     save_evaluation_outputs(name, y_true, y_pred, output_dir)
-    print(f"Finished evaluation: {name}")
+    status(f"Finished evaluation: {name}", "done")
 
 
 def build_transfer_checkpoint_model(
@@ -172,6 +198,10 @@ def build_transfer_checkpoint_model(
     classifier_hidden_layers: list[int] | None,
     classifier_dropout: float,
 ) -> torch.nn.Module:
+    state_dict = load_state_dict(checkpoint_path, device)
+    if classifier_hidden_layers is None:
+        classifier_hidden_layers = infer_transfer_classifier_hidden_layers(state_dict, transfer_model)
+
     model = build_model(
         "transfer",
         transfer_model=transfer_model,
@@ -180,8 +210,36 @@ def build_transfer_checkpoint_model(
         classifier_hidden_layers=classifier_hidden_layers,
         classifier_dropout=classifier_dropout,
     )
-    model.load_state_dict(load_state_dict(checkpoint_path, device))
+    model.load_state_dict(state_dict)
     return model
+
+
+def infer_transfer_classifier_hidden_layers(state_dict: dict, transfer_model: str) -> list[int] | None:
+    """Infer an MLP classifier head from transfer-learning checkpoint keys."""
+    if transfer_model == "resnet18":
+        if "fc.weight" in state_dict:
+            return None
+        prefix = "fc."
+    elif transfer_model in {"mobilenet_v2", "efficientnet_b0"}:
+        if "classifier.1.weight" in state_dict:
+            return None
+        prefix = "classifier.1."
+    else:
+        return None
+
+    linear_layers = sorted(
+        (
+            (key, tuple(value.shape))
+            for key, value in state_dict.items()
+            if key.startswith(prefix) and key.endswith(".weight") and value.ndim == 2
+        ),
+        key=lambda item: [int(part) if part.isdigit() else part for part in item[0].split(".")],
+    )
+    if len(linear_layers) <= 1:
+        return None
+    hidden_layers = [shape[0] for _, shape in linear_layers[:-1]]
+    status(f"Inferred classifier hidden layers from checkpoint: {hidden_layers}", "done")
+    return hidden_layers
 
 
 def linears_from_state_dict(state_dict: dict) -> list[tuple[str, tuple[int, int]]]:
@@ -244,9 +302,24 @@ def infer_baseline_model_from_state_dict(state_dict: dict) -> torch.nn.Module:
     raise ValueError("Could not infer matching BaselineCNN architecture from checkpoint.")
 
 
-def save_comparison_table(output_dir: Path) -> None:
+def _ordered_report_paths(output_dir: Path, experiment_order: list[str] | None = None) -> list[Path]:
+    report_paths = list(output_dir.glob("*_classification_report.csv"))
+    if not experiment_order:
+        return sorted(report_paths)
+
+    order_index = {name: index for index, name in enumerate(experiment_order)}
+    return sorted(
+        report_paths,
+        key=lambda path: (
+            order_index.get(path.name.removesuffix("_classification_report.csv"), len(order_index)),
+            path.name,
+        ),
+    )
+
+
+def save_comparison_table(output_dir: Path, experiment_order: list[str] | None = None) -> None:
     rows = []
-    for report_path in sorted(output_dir.glob("*_classification_report.csv")):
+    for report_path in _ordered_report_paths(output_dir, experiment_order):
         name = report_path.name.removesuffix("_classification_report.csv")
         report = pd.read_csv(report_path, index_col=0)
         rows.append(
@@ -273,3 +346,111 @@ def save_comparison_table(output_dir: Path) -> None:
     plt.tight_layout()
     plt.savefig(output_dir / "evaluation_f1_comparison.png", dpi=200, bbox_inches="tight")
     plt.close()
+
+
+def _relative_link(path: Path, base_dir: Path) -> str:
+    return html.escape(os.path.relpath(path, base_dir).replace("\\", "/"))
+
+
+def write_evaluation_dashboard(output_dir: Path, title: str, experiment_order: list[str] | None = None) -> Path:
+    summary_html = ""
+    summary_csv = output_dir / "evaluation_summary.csv"
+    if summary_csv.exists():
+        summary = pd.read_csv(summary_csv)
+        summary_html = (
+            "<section><h2>Evaluation Summary</h2>"
+            + summary.round(4).to_html(index=False, classes="table", border=0)
+            + "</section>"
+        )
+
+    comparison_html = ""
+    comparison_path = output_dir / "evaluation_f1_comparison.png"
+    if comparison_path.exists():
+        comparison_html = (
+            f'<section><h2>F1 Comparison</h2><img src="{_relative_link(comparison_path, output_dir)}" '
+            'alt="F1 comparison"></section>'
+        )
+
+    cards = []
+    for report_path in _ordered_report_paths(output_dir, experiment_order):
+        name = report_path.name.removesuffix("_classification_report.csv")
+        report = pd.read_csv(report_path, index_col=0)
+        saved_figure_path = PROJECT_ROOT / "results" / "figures" / f"{name}_confusion_matrix.png"
+        matrix_path = saved_figure_path if saved_figure_path.exists() else output_dir / f"{name}_confusion_matrix.png"
+        confusions_path = output_dir / f"{name}_top_confusions.csv"
+        summary_rows = [row for row in ["macro avg", "weighted avg"] if row in report.index]
+        emotion_rows = [row for row in [EMOTION_LABELS[index] for index in range(len(EMOTION_LABELS))] if row in report.index]
+        parts = []
+        if summary_rows:
+            parts.append("<h4>Summary</h4>")
+            parts.append(
+                report.loc[summary_rows, ["precision", "recall", "f1-score", "support"]]
+                .round(4)
+                .to_html(classes="table compact", border=0)
+            )
+        if emotion_rows:
+            parts.append("<h4>Per-Class F1</h4>")
+            parts.append(report.loc[emotion_rows, ["f1-score", "support"]].round(4).to_html(classes="table compact", border=0))
+        if confusions_path.exists():
+            confusions = pd.read_csv(confusions_path).head(8)
+            parts.append("<h4>Top Confusions</h4>")
+            parts.append(confusions.round(4).to_html(index=False, classes="table compact", border=0))
+
+        matrix_html = ""
+        if matrix_path.exists():
+            matrix_html = (
+                f'<figure><img src="{_relative_link(matrix_path, output_dir)}" alt="{html.escape(name)} confusion matrix">'
+                "<figcaption>Saved loss and confusion-matrix figure</figcaption></figure>"
+            )
+
+        cards.append(
+            f"""
+            <article class="experiment-card">
+              <h3>{html.escape(name)}</h3>
+              <div class="experiment-layout">
+                <div>{''.join(parts)}</div>
+                {matrix_html}
+              </div>
+            </article>
+            """
+        )
+
+    html_text = f"""<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{html.escape(title)}</title>
+  <style>
+    body {{ font-family: Arial, sans-serif; margin: 24px; color: #1f2933; background: #f7f8fb; }}
+    section, .experiment-card {{ background: white; border: 1px solid #d9dee8; border-radius: 8px; padding: 16px; margin: 18px 0; }}
+    img {{ max-width: 100%; height: auto; display: block; }}
+    .table {{ width: 100%; border-collapse: collapse; font-size: 13px; }}
+    .table th {{ background: #2f3b52; color: white; text-align: left; padding: 8px; }}
+    .table td {{ border-bottom: 1px solid #e4e7ec; padding: 7px 8px; }}
+    .table tr:nth-child(even) td {{ background: #f6f7fb; }}
+    .experiment-layout {{ display: grid; grid-template-columns: minmax(320px, 1fr) minmax(320px, 0.9fr); gap: 18px; align-items: start; }}
+    .compact {{ font-size: 12px; }}
+    h3 {{ overflow-wrap: anywhere; }}
+    h4 {{ margin: 12px 0 6px; }}
+    figure {{ margin: 0; }}
+    figcaption {{ font-size: 12px; margin-top: 8px; color: #52606d; }}
+    @media (max-width: 900px) {{ .experiment-layout {{ grid-template-columns: 1fr; }} }}
+  </style>
+</head>
+<body>
+  <h1>{html.escape(title)}</h1>
+  <p>Generated by checkpoint evaluation scripts.</p>
+  {summary_html}
+  {comparison_html}
+  <section><h2>Per-Experiment Details</h2>{''.join(cards)}</section>
+</body>
+</html>
+"""
+    dashboard_path = output_dir / "index.html"
+    dashboard_path.write_text(html_text, encoding="utf-8")
+    return dashboard_path
+
+
+def open_dashboard(dashboard_path: Path) -> None:
+    webbrowser.open(dashboard_path.resolve().as_uri())

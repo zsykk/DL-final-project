@@ -286,6 +286,32 @@ def save_training_curves(metrics_dir: Path, experiment_names: list[str], group: 
     plt.close(fig)
 
 
+def save_individual_loss_curves(metrics_dir: Path, experiment_names: list[str], output_dir: Path) -> None:
+    loss_dir = output_dir / "loss_curves"
+    loss_dir.mkdir(parents=True, exist_ok=True)
+    for name in experiment_names:
+        history_path = metrics_dir / f"{name}_history.csv"
+        if not history_path.exists():
+            continue
+        history = pd.read_csv(history_path)
+        if "epoch" not in history.columns or not {"train_loss", "val_loss"}.intersection(history.columns):
+            continue
+
+        fig, ax = plt.subplots(figsize=(5.5, 3.4))
+        if "train_loss" in history.columns:
+            ax.plot(history["epoch"], history["train_loss"], marker="o", linewidth=1.5, markersize=3, label="train loss")
+        if "val_loss" in history.columns:
+            ax.plot(history["epoch"], history["val_loss"], marker="o", linewidth=1.5, markersize=3, label="val loss")
+        ax.set_title(f"{name} loss", fontsize=9)
+        ax.set_xlabel("Epoch")
+        ax.set_ylabel("Loss")
+        ax.grid(alpha=0.25)
+        ax.legend(fontsize=8)
+        fig.tight_layout()
+        fig.savefig(loss_dir / f"{name}_loss_curve.png", dpi=200, bbox_inches="tight")
+        plt.close(fig)
+
+
 def save_top_confusions(metrics_dir: Path, experiment_names: list[str], output_dir: Path) -> None:
     frames = []
     for name in experiment_names:
@@ -366,6 +392,7 @@ def write_dashboard(output_dir: Path, title: str) -> Path:
         name = matrix_path.name.removesuffix("_confusion_matrix.png")
         report_path = output_dir / "source_reports" / f"{name}_classification_report.csv"
         confusions_path = output_dir / "source_reports" / f"{name}_top_confusions.csv"
+        loss_path = output_dir / "loss_curves" / f"{name}_loss_curve.png"
         detail_parts = []
         if report_path.exists():
             report = pd.read_csv(report_path, index_col=0)
@@ -395,10 +422,13 @@ def write_dashboard(output_dir: Path, title: str) -> Path:
               <h3>{html.escape(name)}</h3>
               <div class="experiment-layout">
                 <div>{''.join(detail_parts)}</div>
-                <figure>
-                  <img src="{relative_link(matrix_path, output_dir)}" alt="{html.escape(name)} confusion matrix">
-                  <figcaption>Confusion matrix</figcaption>
-                </figure>
+                <div class="plot-stack">
+                  {f'<figure><img src="{relative_link(loss_path, output_dir)}" alt="{html.escape(name)} loss curve"><figcaption>Training and validation loss</figcaption></figure>' if loss_path.exists() and not matrix_path.exists() else ''}
+                  <figure>
+                    <img src="{relative_link(matrix_path, output_dir)}" alt="{html.escape(name)} confusion matrix">
+                    <figcaption>Saved loss and confusion-matrix figure</figcaption>
+                  </figure>
+                </div>
               </div>
             </article>
             """
@@ -432,6 +462,7 @@ def write_dashboard(output_dir: Path, title: str) -> Path:
     .matrix-grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(360px, 1fr)); gap: 18px; }}
     .experiment-card {{ border-top: 1px solid #e4e7ec; margin-top: 18px; padding-top: 16px; }}
     .experiment-layout {{ display: grid; grid-template-columns: minmax(320px, 1fr) minmax(320px, 0.9fr); gap: 18px; align-items: start; }}
+    .plot-stack {{ display: grid; gap: 14px; }}
     .compact {{ font-size: 12px; }}
     h3 {{ overflow-wrap: anywhere; }}
     h4 {{ margin: 12px 0 6px; }}
@@ -504,6 +535,8 @@ def reproduce_group(group: str, results_dir: Path, output_root: Path) -> None:
     metrics_dir = results_dir / "metrics"
     figures_dir = results_dir / "figures"
     output_dir = output_root / group
+    if output_dir.exists():
+        shutil.rmtree(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
     experiment_names = discover_experiments(metrics_dir, group)
@@ -522,6 +555,7 @@ def reproduce_group(group: str, results_dir: Path, output_root: Path) -> None:
             save_table_image(summary, model_output_dir / "summary_metrics_table.png", f"CK+ {model_group} summary metrics")
             save_metric_barplot(summary, model_group, model_output_dir / "test_f1_comparison.png")
             save_per_class_heatmap(metrics_dir, model_names, model_group, model_output_dir / "per_class_f1_heatmap.png")
+            save_individual_loss_curves(metrics_dir, model_names, model_output_dir)
             save_top_confusions(metrics_dir, model_names, model_output_dir)
             copy_confusion_matrices(figures_dir, model_names, model_output_dir)
             copy_source_reports(metrics_dir, model_names, model_output_dir)
@@ -556,6 +590,7 @@ def reproduce_group(group: str, results_dir: Path, output_root: Path) -> None:
     save_validation_plot(summary, group, output_dir / "validation_macro_f1_comparison.png")
     save_per_class_heatmap(metrics_dir, experiment_names, group, output_dir / "per_class_f1_heatmap.png")
     save_training_curves(metrics_dir, experiment_names, group, output_dir / "training_loss_curves.png")
+    save_individual_loss_curves(metrics_dir, experiment_names, output_dir)
     save_top_confusions(metrics_dir, experiment_names, output_dir)
     copy_confusion_matrices(figures_dir, experiment_names, output_dir)
     copy_source_reports(metrics_dir, experiment_names, output_dir)

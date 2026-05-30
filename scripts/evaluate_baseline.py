@@ -10,7 +10,10 @@ from evaluate_common import (
     evaluate_model,
     infer_baseline_model_from_state_dict,
     load_state_dict,
+    open_dashboard,
     save_comparison_table,
+    status,
+    write_evaluation_dashboard,
 )
 
 
@@ -27,6 +30,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--batch-size", type=int, default=128)
     parser.add_argument("--num-workers", type=int, default=0)
     parser.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
+    parser.add_argument("--open", action="store_true", help="Open the generated evaluation dashboard.")
     return parser.parse_args()
 
 
@@ -36,8 +40,8 @@ def main() -> None:
     names = args.experiment or discover_experiments(args.checkpoint_dir)
     if not names:
         raise ValueError("No baseline CNN checkpoints found to evaluate.")
-    print(f"Preparing to evaluate {len(names)} baseline checkpoint(s).")
-    print(f"Outputs will be written to {args.output_dir}")
+    status(f"Preparing to evaluate {len(names)} baseline checkpoint(s).", "processing")
+    status(f"Outputs will be written to {args.output_dir}", "output")
 
     normal_loader = None
     tencrop_loader = None
@@ -55,10 +59,14 @@ def main() -> None:
                 normal_loader = baseline_eval_loader(args.data_dir, args.batch_size, args.num_workers, ten_crop=False)
             loader = normal_loader
         evaluate_model(model, loader, device, name, args.output_dir, use_crops=use_crops)
-        print(f"Evaluated {name}")
+        status(f"Evaluated {name}", "done")
 
     save_comparison_table(args.output_dir)
-    print(f"Wrote evaluated baseline results to {args.output_dir}")
+    dashboard_path = write_evaluation_dashboard(args.output_dir, "Baseline CNN Evaluated Results")
+    status(f"Wrote evaluated baseline results to {args.output_dir}", "done")
+    status(f"Dashboard: {dashboard_path}", "output")
+    if args.open:
+        open_dashboard(dashboard_path)
 
 
 if __name__ == "__main__":

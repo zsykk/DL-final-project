@@ -24,7 +24,9 @@ if str(SRC_DIR) not in sys.path:
 from evaluate_common import (  # noqa: E402
     infer_baseline_model_from_state_dict,
     load_state_dict,
+    open_dashboard,
     transfer_tencrop_transform,
+    write_evaluation_dashboard,
 )
 from fer_project.models import build_model  # noqa: E402
 
@@ -327,6 +329,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--batch-size", type=int, default=128)
     parser.add_argument("--num-workers", type=int, default=0)
     parser.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
+    parser.add_argument("--open", action="store_true", help="Open the generated CK+ dashboard(s).")
     return parser.parse_args()
 
 
@@ -361,7 +364,13 @@ def main() -> None:
         print(f"Evaluated {spec['name']}")
 
     for group, rows in group_summaries.items():
-        pd.DataFrame(rows).to_csv(args.output_dir / group / "ckplus_external_evaluation_summary.csv", index=False)
+        group_output_dir = args.output_dir / group
+        pd.DataFrame(rows).to_csv(group_output_dir / "ckplus_external_evaluation_summary.csv", index=False)
+        pd.DataFrame(rows).to_csv(group_output_dir / "evaluation_summary.csv", index=False)
+        dashboard_path = write_evaluation_dashboard(group_output_dir, f"CK+ {group} Evaluated Results")
+        print(f"Dashboard: {dashboard_path}")
+        if args.open:
+            open_dashboard(dashboard_path)
     pd.DataFrame(summaries).to_csv(args.output_dir / "ckplus_external_evaluation_summary.csv", index=False)
     print(f"Wrote CK+ external evaluation results to {args.output_dir}")
 

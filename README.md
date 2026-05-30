@@ -49,7 +49,10 @@ python scripts/reproduce_saved_results.py --group all
 To open the generated plot dashboard immediately in a browser, add `--open`:
 
 ```bash
+python scripts/reproduce_saved_results.py --group baseline --open
 python scripts/reproduce_saved_results.py --group resnet18 --open
+python scripts/reproduce_saved_results.py --group efficientnet_b0 --open
+python scripts/reproduce_saved_results.py --group ckplus_external --open
 ```
 
 ### Full Evaluation From Checkpoints
@@ -63,6 +66,55 @@ python scripts/evaluate_resnet18.py
 python scripts/evaluate_efficientnet_b0.py
 python scripts/evaluate_ckplus_external.py
 ```
+
+Add `--open` to open the generated evaluated-results dashboard immediately:
+
+```bash
+python scripts/evaluate_baseline.py --open
+python scripts/evaluate_resnet18.py --open
+python scripts/evaluate_efficientnet_b0.py --open
+python scripts/evaluate_ckplus_external.py --group resnet18 --open
+```
+
+Transfer-model TenCrop evaluation is intentionally handled separately on CPU.
+TenCrop evaluates 10 crops per image. For ResNet18 and EfficientNet-B0 this
+means 10 larger 224x224 RGB forward passes per original test image, so it is
+much slower than ordinary inference. The standard transfer-model evaluators run
+TenCrop checkpoints automatically on CUDA, but skip them on CPU and keep the
+dashboard based on the completed outputs.
+
+For the usual CPU workflow, run:
+
+```bash
+python scripts/evaluate_resnet18.py --open
+python scripts/evaluate_efficientnet_b0.py --open
+```
+
+Then run TenCrop checkpoints separately only when needed:
+
+```bash
+python scripts/evaluate_resnet18_tencrop.py --open
+python scripts/evaluate_efficientnet_b0_tencrop.py --open
+```
+
+If CUDA is available, run the full transfer-model evaluation including TenCrop
+with:
+
+```bash
+python scripts/evaluate_resnet18.py --open --device cuda
+python scripts/evaluate_efficientnet_b0.py --open --device cuda
+```
+
+To force TenCrop inside a main CPU run anyway:
+
+```bash
+python scripts/evaluate_resnet18.py --open --include-tencrop-on-cpu
+python scripts/evaluate_efficientnet_b0.py --open --include-tencrop-on-cpu
+```
+
+The baseline CNN does not need a separate TenCrop script because its TenCrop
+path uses 48x48 grayscale crops and the small self-defined CNN, so it is much
+lighter than 224x224 RGB transfer-model TenCrop.
 
 These scripts read from:
 
@@ -142,7 +194,9 @@ scripts/
   evaluate_ckplus_external.py
   evaluate_common.py
   evaluate_efficientnet_b0.py
+  evaluate_efficientnet_b0_tencrop.py
   evaluate_resnet18.py
+  evaluate_resnet18_tencrop.py
   reproduce_saved_results.py
 src/fer_project/
   data.py
