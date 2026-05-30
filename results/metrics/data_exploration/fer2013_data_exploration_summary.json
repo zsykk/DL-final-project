@@ -1,0 +1,7 @@
+{
+  "train_total": 28709,
+  "test_total": 7178,
+  "imbalance_ratio": 16.548165137614678,
+  "largest_train_class": "happy",
+  "smallest_train_class": "disgust"
+}

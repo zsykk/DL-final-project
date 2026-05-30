@@ -1,0 +1,8 @@
+emotion_name,test,train
+angry,958.0,3995.0
+disgust,111.0,436.0
+fear,1024.0,4097.0
+happy,1774.0,7215.0
+neutral,1233.0,4965.0
+sad,1247.0,4830.0
+surprise,831.0,3171.0

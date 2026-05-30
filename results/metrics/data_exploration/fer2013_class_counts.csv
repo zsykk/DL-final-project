@@ -1,0 +1,15 @@
+split,emotion,emotion_name,folder,count
+test,0,angry,angry,958
+test,1,disgust,disgust,111
+test,2,fear,fear,1024
+test,3,happy,happy,1774
+test,4,sad,sad,1247
+test,5,surprise,surprise,831
+test,6,neutral,neutral,1233
+train,0,angry,angry,3995
+train,1,disgust,disgust,436
+train,2,fear,fear,4097
+train,3,happy,happy,7215
+train,4,sad,sad,4830
+train,5,surprise,surprise,3171
+train,6,neutral,neutral,4965

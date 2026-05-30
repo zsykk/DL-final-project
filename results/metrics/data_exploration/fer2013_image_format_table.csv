@@ -1,0 +1,3 @@
+split,width,height,mode,count
+test,48,48,L,7178
+train,48,48,L,28709
