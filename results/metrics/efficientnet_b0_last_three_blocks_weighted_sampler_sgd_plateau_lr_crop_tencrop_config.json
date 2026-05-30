@@ -1,0 +1,24 @@
+{
+  "name": "efficientnet_b0_last_three_blocks_weighted_sampler_sgd_plateau_lr_crop_tencrop",
+  "model": "efficientnet_b0",
+  "source_weights": "ImageNet pretrained EfficientNet-B0; no previous FER2013 checkpoint loaded",
+  "classifier_hidden_layers": [
+    256
+  ],
+  "classifier_dropout": 0.4,
+  "classifier_shape": "1280 -> 256 -> 7",
+  "unfreeze_from": "last_three_blocks",
+  "optimizer_name": "sgd_plateau",
+  "epochs": 40,
+  "lr": 0.01,
+  "weight_decay": 0.0005,
+  "use_class_weights": false,
+  "weighted_sampler": true,
+  "loss_name": "cross_entropy",
+  "focal_gamma": 1.0,
+  "crop_size": 224,
+  "ten_crop_eval": true,
+  "train_transform": "256 resize -> RandomCrop(224) -> basic augmentation -> ImageNet normalization",
+  "eval_transform": "256 resize -> TenCrop(224) -> ImageNet normalization",
+  "checkpoint": "/kaggle/working/DL-final-project/results/checkpoints/efficientnet_b0_last_three_blocks_weighted_sampler_sgd_plateau_lr_crop_tencrop.pt"
+}
