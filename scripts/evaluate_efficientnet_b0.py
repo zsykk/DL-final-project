@@ -11,6 +11,7 @@ from evaluate_common import (
     evaluate_model,
     save_comparison_table,
     transfer_eval_loader,
+    transfer_tencrop_eval_loader,
 )
 
 
@@ -33,6 +34,14 @@ def load_classifier_config(metrics_dir: Path, name: str) -> tuple[list[int] | No
     return config.get("classifier_hidden_layers"), config.get("classifier_dropout", 0.35)
 
 
+def uses_tencrop(metrics_dir: Path, name: str) -> bool:
+    config_path = metrics_dir / f"{name}_config.json"
+    if not config_path.exists():
+        return "tencrop" in name.lower()
+    config = json.loads(config_path.read_text(encoding="utf-8"))
+    return bool(config.get("ten_crop_eval", False)) or "tencrop" in name.lower()
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Evaluate saved EfficientNet-B0 checkpoints on FER2013 test data.")
     parser.add_argument("--data-dir", type=Path, default=Path("data/raw/fer2013_images"))
@@ -49,12 +58,24 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:
     args = parse_args()
     device = torch.device(args.device)
-    loader = transfer_eval_loader(args.data_dir, args.batch_size, args.num_workers)
+    normal_loader = None
+    tencrop_loader = None
     names = args.experiment or discover_experiments(args.checkpoint_dir, args.metrics_dir)
     if not names:
         raise ValueError("No EfficientNet-B0 checkpoints found to evaluate.")
+    print(f"Preparing to evaluate {len(names)} EfficientNet-B0 checkpoint(s).")
+    print(f"Outputs will be written to {args.output_dir}")
 
     for name in names:
+        use_crops = uses_tencrop(args.metrics_dir, name)
+        if use_crops:
+            if tencrop_loader is None:
+                tencrop_loader = transfer_tencrop_eval_loader(args.data_dir, args.batch_size, args.num_workers)
+            loader = tencrop_loader
+        else:
+            if normal_loader is None:
+                normal_loader = transfer_eval_loader(args.data_dir, args.batch_size, args.num_workers)
+            loader = normal_loader
         checkpoint_path = args.checkpoint_dir / f"{name}.pt"
         hidden_layers, dropout = load_classifier_config(args.metrics_dir, name)
         model = build_transfer_checkpoint_model(
@@ -64,7 +85,7 @@ def main() -> None:
             classifier_hidden_layers=hidden_layers,
             classifier_dropout=dropout,
         )
-        evaluate_model(model, loader, device, name, args.output_dir)
+        evaluate_model(model, loader, device, name, args.output_dir, use_crops=use_crops)
         print(f"Evaluated {name}")
 
     save_comparison_table(args.output_dir)

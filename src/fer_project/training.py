@@ -458,6 +458,109 @@ def fit_sgd_schedule(
     return history, best_val_loss
 
 
+def fit_sgd_schedule_with_epoch_checkpoints(
+    model,
+    loaders,
+    device,
+    epochs: int = 60,
+    lr: float = 0.01,
+    momentum: float = 0.9,
+    weight_decay: float = 5e-4,
+    class_weight: torch.Tensor | None = None,
+    loss_name: str = "cross_entropy",
+    focal_gamma: float = 2.0,
+    grad_clip: float | None = 0.1,
+    lr_decay_rate: float = 0.1,
+    lr_plateau_patience: int = 5,
+    lr_plateau_threshold: float = 1e-3,
+    min_lr: float = 1e-6,
+    checkpoint_path: str | Path | None = None,
+    initial_best_val_macro_f1: float = float("-inf"),
+    initial_best_val_loss: float = float("inf"),
+    epoch_offset: int = 0,
+    stage_name: str = "stage",
+    save_epoch_checkpoints: list[int] | tuple[int, ...] | set[int] | None = None,
+    epoch_checkpoint_dir: str | Path | None = None,
+    epoch_checkpoint_prefix: str | None = None,
+):
+    """Train with SGD and additionally save selected epoch snapshots."""
+    model = model.to(device)
+    trainable_params = [p for p in model.parameters() if p.requires_grad]
+    optimizer = torch.optim.SGD(trainable_params, lr=lr, momentum=momentum, weight_decay=weight_decay)
+    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+        optimizer,
+        mode="min",
+        factor=lr_decay_rate,
+        patience=lr_plateau_patience,
+        threshold=lr_plateau_threshold,
+        threshold_mode="rel",
+        min_lr=min_lr,
+    )
+    criterion = build_criterion(
+        loss_name=loss_name,
+        class_weight=class_weight.to(device) if class_weight is not None else None,
+        focal_gamma=focal_gamma,
+    )
+
+    history = []
+    best_val_macro_f1 = initial_best_val_macro_f1
+    best_val_loss = initial_best_val_loss
+    save_epoch_checkpoints = set(save_epoch_checkpoints or [])
+    if save_epoch_checkpoints and epoch_checkpoint_dir is None:
+        if checkpoint_path is None:
+            raise ValueError("epoch_checkpoint_dir is required when checkpoint_path is not set")
+        epoch_checkpoint_dir = Path(checkpoint_path).parent
+    epoch_checkpoint_dir = Path(epoch_checkpoint_dir) if epoch_checkpoint_dir is not None else None
+    if epoch_checkpoint_prefix is None and checkpoint_path is not None:
+        epoch_checkpoint_prefix = Path(checkpoint_path).stem
+
+    for local_epoch in range(1, epochs + 1):
+        current_lr = optimizer.param_groups[0]["lr"]
+
+        train_metrics = train_one_epoch_with_gradient_clip(
+            model,
+            loaders["train"],
+            criterion,
+            optimizer,
+            device,
+            grad_clip=grad_clip,
+        )
+        val_metrics = evaluate_loss_f1_with_crops(model, loaders["val"], criterion, device)
+        scheduler.step(val_metrics["loss"])
+
+        global_epoch = epoch_offset + local_epoch
+        row = {
+            "stage": stage_name,
+            "epoch": global_epoch,
+            "stage_epoch": local_epoch,
+            "lr": current_lr,
+            "train_loss": train_metrics["loss"],
+            "train_macro_f1": train_metrics["macro_f1"],
+            "train_weighted_f1": train_metrics["weighted_f1"],
+            "val_loss": val_metrics["loss"],
+            "val_macro_f1": val_metrics["macro_f1"],
+            "val_weighted_f1": val_metrics["weighted_f1"],
+        }
+        history.append(row)
+        if should_log_epoch(local_epoch, epochs):
+            print(format_epoch_metrics(row))
+
+        if checkpoint_path is not None and is_better_checkpoint(val_metrics, best_val_macro_f1, best_val_loss):
+            best_val_macro_f1 = val_metrics["macro_f1"]
+            best_val_loss = val_metrics["loss"]
+            Path(checkpoint_path).parent.mkdir(parents=True, exist_ok=True)
+            torch.save(model.state_dict(), checkpoint_path)
+
+        if global_epoch in save_epoch_checkpoints:
+            if epoch_checkpoint_dir is None or epoch_checkpoint_prefix is None:
+                raise ValueError("epoch checkpoint path information is missing")
+            epoch_checkpoint_dir.mkdir(parents=True, exist_ok=True)
+            epoch_checkpoint_path = epoch_checkpoint_dir / f"{epoch_checkpoint_prefix}_epoch_{global_epoch:03d}.pt"
+            torch.save(model.state_dict(), epoch_checkpoint_path)
+
+    return history, best_val_loss
+
+
 def fit_resnet18_gradual_unfreeze(
     model,
     loaders,

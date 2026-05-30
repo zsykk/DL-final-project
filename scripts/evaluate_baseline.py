@@ -36,6 +36,8 @@ def main() -> None:
     names = args.experiment or discover_experiments(args.checkpoint_dir)
     if not names:
         raise ValueError("No baseline CNN checkpoints found to evaluate.")
+    print(f"Preparing to evaluate {len(names)} baseline checkpoint(s).")
+    print(f"Outputs will be written to {args.output_dir}")
 
     normal_loader = None
     tencrop_loader = None

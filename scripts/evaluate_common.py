@@ -13,6 +13,7 @@ import torch
 from sklearn.metrics import classification_report
 from torch.utils.data import DataLoader
 from torchvision.datasets import ImageFolder
+from torchvision import transforms
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -41,8 +42,10 @@ def ensure_fer_test_loader(data_dir: Path, transform, batch_size: int, num_worke
     test_dir = data_dir / "test"
     if not test_dir.exists():
         raise FileNotFoundError(f"Expected FER2013 test folder at {test_dir}")
+    print(f"Loading FER2013 test images from {test_dir} ...")
     dataset = ImageFolder(test_dir, transform=transform)
     dataset.target_transform = _imagefolder_target_transform(dataset)
+    print(f"Found {len(dataset)} test images across {len(dataset.classes)} folders.")
     return DataLoader(dataset, batch_size=batch_size, shuffle=False, num_workers=num_workers)
 
 
@@ -52,6 +55,24 @@ def transfer_eval_loader(data_dir: Path, batch_size: int, num_workers: int) -> D
         input_is_pil=True,
     )
     return ensure_fer_test_loader(data_dir, transform, batch_size, num_workers)
+
+
+def transfer_tencrop_transform(resize_size: int = 256, crop_size: int = 224):
+    resize = transforms.Resize((resize_size, resize_size))
+    to_tensor = transforms.ToTensor()
+    normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+    return transforms.Compose(
+        [
+            transforms.Grayscale(num_output_channels=3),
+            resize,
+            transforms.TenCrop(crop_size),
+            transforms.Lambda(lambda crops: torch.stack([normalize(to_tensor(crop)) for crop in crops])),
+        ]
+    )
+
+
+def transfer_tencrop_eval_loader(data_dir: Path, batch_size: int, num_workers: int) -> DataLoader:
+    return ensure_fer_test_loader(data_dir, transfer_tencrop_transform(), batch_size, num_workers)
 
 
 def baseline_eval_loader(data_dir: Path, batch_size: int, num_workers: int, ten_crop: bool) -> DataLoader:
@@ -66,6 +87,7 @@ def baseline_eval_loader(data_dir: Path, batch_size: int, num_workers: int, ten_
 def load_state_dict(checkpoint_path: Path, device: torch.device) -> dict:
     if not checkpoint_path.exists():
         raise FileNotFoundError(f"Missing checkpoint: {checkpoint_path}")
+    print(f"Loading checkpoint: {checkpoint_path}")
     return torch.load(checkpoint_path, map_location=device)
 
 
@@ -107,6 +129,20 @@ def save_evaluation_outputs(
     summary = report.loc[["macro avg", "weighted avg"], ["precision", "recall", "f1-score", "support"]]
     summary.to_csv(output_dir / f"{name}_summary.csv")
 
+    per_class = report.loc[
+        [EMOTION_LABELS[index] for index in range(len(EMOTION_LABELS))],
+        ["precision", "recall", "f1-score", "support"],
+    ]
+    print(f"\n===== {name} =====")
+    print("Test summary:")
+    print(summary.round(4).to_string())
+    print("\nPer-class F1:")
+    print(per_class[["f1-score", "support"]].round(4).to_string())
+    print("\nTop confusions:")
+    print(confusions.head(10).round(4).to_string(index=False))
+    print(f"\nSaved classification report: {output_dir / f'{name}_classification_report.csv'}")
+    print(f"Saved confusion matrix: {output_dir / f'{name}_confusion_matrix.png'}")
+
 
 def evaluate_model(
     model: torch.nn.Module,
@@ -116,13 +152,17 @@ def evaluate_model(
     output_dir: Path,
     use_crops: bool = False,
 ) -> None:
+    print(f"\nStarting evaluation: {name}")
+    print(f"Device: {device}; batches: {len(loader)}; crop averaging: {use_crops}")
     model = model.to(device)
     model.eval()
     if use_crops:
         y_true, y_pred = collect_predictions_with_crops(model, loader, device)
     else:
         y_true, y_pred = collect_predictions(model, loader, device)
+    print(f"Finished inference for {name}; saving metrics and plots...")
     save_evaluation_outputs(name, y_true, y_pred, output_dir)
+    print(f"Finished evaluation: {name}")
 
 
 def build_transfer_checkpoint_model(

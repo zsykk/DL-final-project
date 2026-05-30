@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import argparse
+import html
 import math
 import shutil
+import webbrowser
 from pathlib import Path
 
 import matplotlib
@@ -25,6 +27,7 @@ FINAL_RESNET18_EXPERIMENTS = [
     "resnet18_layer3_class_weights_focal",
     "resnet18_layer3_weighted_sampler_focal",
     "resnet18_layer3_class_weights_focal_sgd_plateau_lr",
+    "resnet18_layer3_class_weights_focal_sgd_plateau_lr_crop_tencrop",
 ]
 
 
@@ -64,6 +67,16 @@ def discover_experiments(metrics_dir: Path, group: str) -> list[str]:
         raise ValueError(f"Unknown group: {group}")
 
     return sorted(name for name in selected if not is_excluded_name(name))
+
+
+def ckplus_model_group(name: str) -> str:
+    if name.startswith("baseline_cnn_"):
+        return "baseline"
+    if name.startswith("resnet18_"):
+        return "resnet18"
+    if name.startswith("efficientnet_b0_"):
+        return "efficientnet_b0"
+    return "other"
 
 
 def best_history_row(history: pd.DataFrame) -> pd.Series:
@@ -303,6 +316,190 @@ def copy_confusion_matrices(figures_dir: Path, experiment_names: list[str], outp
             shutil.copy2(source, matrix_dir / source.name)
 
 
+def copy_source_reports(metrics_dir: Path, experiment_names: list[str], output_dir: Path) -> None:
+    source_dir = output_dir / "source_reports"
+    source_dir.mkdir(parents=True, exist_ok=True)
+    for name in experiment_names:
+        for suffix in ["classification_report.csv", "top_confusions.csv"]:
+            source = metrics_dir / f"{name}_{suffix}"
+            if source.exists():
+                shutil.copy2(source, source_dir / source.name)
+
+
+def relative_link(path: Path, base_dir: Path) -> str:
+    return html.escape(path.relative_to(base_dir).as_posix())
+
+
+def write_dashboard(output_dir: Path, title: str) -> Path:
+    summary_html = ""
+    summary_csv = output_dir / "summary_metrics.csv"
+    if summary_csv.exists():
+        summary = pd.read_csv(summary_csv)
+        summary_html = (
+            "<section><h2>Summary Metrics</h2>"
+            + summary.round(4).to_html(index=False, classes="table", border=0)
+            + "</section>"
+        )
+
+    confusions_html = ""
+    confusions_csv = output_dir / "top_confusions.csv"
+    if confusions_csv.exists():
+        confusions = pd.read_csv(confusions_csv)
+        confusions_html = (
+            "<section><h2>Top Confusions</h2>"
+            + confusions.head(24).round(4).to_html(index=False, classes="table", border=0)
+            + "</section>"
+        )
+
+    plot_files = [
+        path
+        for path in [
+            output_dir / "test_f1_comparison.png",
+            output_dir / "validation_macro_f1_comparison.png",
+            output_dir / "per_class_f1_heatmap.png",
+        ]
+        if path.exists()
+    ]
+    confusion_files = sorted((output_dir / "confusion_matrices").glob("*.png")) if (output_dir / "confusion_matrices").exists() else []
+    experiment_cards = []
+    for matrix_path in confusion_files:
+        name = matrix_path.name.removesuffix("_confusion_matrix.png")
+        report_path = output_dir / "source_reports" / f"{name}_classification_report.csv"
+        confusions_path = output_dir / "source_reports" / f"{name}_top_confusions.csv"
+        detail_parts = []
+        if report_path.exists():
+            report = pd.read_csv(report_path, index_col=0)
+            summary_rows = [row for row in ["macro avg", "weighted avg"] if row in report.index]
+            emotion_rows = [row for row in EMOTION_ROWS if row in report.index]
+            if summary_rows:
+                detail_parts.append("<h4>Summary</h4>")
+                detail_parts.append(
+                    report.loc[summary_rows, ["precision", "recall", "f1-score", "support"]]
+                    .round(4)
+                    .to_html(classes="table compact", border=0)
+                )
+            if emotion_rows:
+                detail_parts.append("<h4>Per-Class F1</h4>")
+                detail_parts.append(
+                    report.loc[emotion_rows, ["f1-score", "support"]]
+                    .round(4)
+                    .to_html(classes="table compact", border=0)
+                )
+        if confusions_path.exists():
+            confusions = pd.read_csv(confusions_path).head(8)
+            detail_parts.append("<h4>Top Confusions</h4>")
+            detail_parts.append(confusions.round(4).to_html(index=False, classes="table compact", border=0))
+        experiment_cards.append(
+            f"""
+            <article class="experiment-card">
+              <h3>{html.escape(name)}</h3>
+              <div class="experiment-layout">
+                <div>{''.join(detail_parts)}</div>
+                <figure>
+                  <img src="{relative_link(matrix_path, output_dir)}" alt="{html.escape(name)} confusion matrix">
+                  <figcaption>Confusion matrix</figcaption>
+                </figure>
+              </div>
+            </article>
+            """
+        )
+
+    cards = []
+    for path in plot_files:
+        label = path.stem.replace("_", " ").title()
+        cards.append(
+            f'<section><h2>{html.escape(label)}</h2><img src="{relative_link(path, output_dir)}" alt="{html.escape(label)}"></section>'
+        )
+    experiment_section = ""
+    if experiment_cards:
+        experiment_section = "<section><h2>Per-Experiment Details</h2>" + "".join(experiment_cards) + "</section>"
+
+    html_text = f"""<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{html.escape(title)}</title>
+  <style>
+    body {{ font-family: Arial, sans-serif; margin: 24px; color: #1f2933; background: #f7f8fb; }}
+    h1 {{ margin-bottom: 8px; }}
+    section {{ background: white; border: 1px solid #d9dee8; border-radius: 8px; padding: 16px; margin: 18px 0; }}
+    img {{ max-width: 100%; height: auto; display: block; }}
+    .table {{ width: 100%; border-collapse: collapse; font-size: 13px; }}
+    .table th {{ background: #2f3b52; color: white; text-align: left; padding: 8px; }}
+    .table td {{ border-bottom: 1px solid #e4e7ec; padding: 7px 8px; }}
+    .table tr:nth-child(even) td {{ background: #f6f7fb; }}
+    .matrix-grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(360px, 1fr)); gap: 18px; }}
+    .experiment-card {{ border-top: 1px solid #e4e7ec; margin-top: 18px; padding-top: 16px; }}
+    .experiment-layout {{ display: grid; grid-template-columns: minmax(320px, 1fr) minmax(320px, 0.9fr); gap: 18px; align-items: start; }}
+    .compact {{ font-size: 12px; }}
+    h3 {{ overflow-wrap: anywhere; }}
+    h4 {{ margin: 12px 0 6px; }}
+    @media (max-width: 900px) {{ .experiment-layout {{ grid-template-columns: 1fr; }} }}
+    figure {{ margin: 0; }}
+    figcaption {{ font-size: 12px; margin-top: 8px; color: #52606d; }}
+  </style>
+</head>
+<body>
+  <h1>{html.escape(title)}</h1>
+  <p>Generated from saved result files.</p>
+  {summary_html}
+  {''.join(cards)}
+  {confusions_html}
+  {experiment_section}
+</body>
+</html>
+"""
+    dashboard_path = output_dir / "index.html"
+    dashboard_path.write_text(html_text, encoding="utf-8")
+    return dashboard_path
+
+
+def print_saved_experiment_details(name: str, metrics_dir: Path, figures_dir: Path) -> None:
+    history_path = metrics_dir / f"{name}_history.csv"
+    report_path = metrics_dir / f"{name}_classification_report.csv"
+    confusions_path = metrics_dir / f"{name}_top_confusions.csv"
+    figure_path = figures_dir / f"{name}_confusion_matrix.png"
+
+    print(f"\n===== {name} =====")
+
+    if history_path.exists():
+        history = pd.read_csv(history_path)
+        best_row = best_history_row(history)
+        columns = [
+            column
+            for column in ["epoch", "stage", "stage_epoch", "lr", "val_loss", "val_macro_f1", "val_weighted_f1"]
+            if column in best_row.index
+        ]
+        print("Best validation row:")
+        print(best_row[columns].to_frame().T.round(4).to_string(index=False))
+        print("\nRecent training history:")
+        recent_columns = [
+            column
+            for column in ["epoch", "stage", "stage_epoch", "lr", "train_loss", "val_loss", "val_macro_f1"]
+            if column in history.columns
+        ]
+        print(history[recent_columns].tail().round(4).to_string(index=False))
+
+    if report_path.exists():
+        report = pd.read_csv(report_path, index_col=0)
+        summary_rows = [row for row in ["macro avg", "weighted avg"] if row in report.index]
+        if summary_rows:
+            print("\nTest summary:")
+            print(report.loc[summary_rows, ["precision", "recall", "f1-score", "support"]].round(4).to_string())
+        emotion_rows = [row for row in EMOTION_ROWS if row in report.index]
+        if emotion_rows:
+            print("\nPer-class F1:")
+            print(report.loc[emotion_rows, ["f1-score", "support"]].round(4).to_string())
+
+    if confusions_path.exists():
+        print("\nTop confusions:")
+        print(pd.read_csv(confusions_path).head(10).round(4).to_string(index=False))
+
+    if figure_path.exists():
+        print(f"\nSaved confusion matrix: {figure_path}")
+
+
 def reproduce_group(group: str, results_dir: Path, output_root: Path) -> None:
     metrics_dir = results_dir / "metrics"
     figures_dir = results_dir / "figures"
@@ -312,6 +509,36 @@ def reproduce_group(group: str, results_dir: Path, output_root: Path) -> None:
     experiment_names = discover_experiments(metrics_dir, group)
     if not experiment_names:
         raise ValueError(f"No saved experiments found for group '{group}' in {metrics_dir}")
+
+    if group == "ckplus_external":
+        for model_group in ["baseline", "resnet18", "efficientnet_b0"]:
+            model_names = [name for name in experiment_names if ckplus_model_group(name) == model_group]
+            if not model_names:
+                continue
+            model_output_dir = output_dir / model_group
+            model_output_dir.mkdir(parents=True, exist_ok=True)
+            summary = build_summary(metrics_dir, model_names)
+            summary.to_csv(model_output_dir / "summary_metrics.csv", index=False)
+            save_table_image(summary, model_output_dir / "summary_metrics_table.png", f"CK+ {model_group} summary metrics")
+            save_metric_barplot(summary, model_group, model_output_dir / "test_f1_comparison.png")
+            save_per_class_heatmap(metrics_dir, model_names, model_group, model_output_dir / "per_class_f1_heatmap.png")
+            save_top_confusions(metrics_dir, model_names, model_output_dir)
+            copy_confusion_matrices(figures_dir, model_names, model_output_dir)
+            copy_source_reports(metrics_dir, model_names, model_output_dir)
+            dashboard_path = write_dashboard(model_output_dir, f"CK+ {model_group} Saved Results")
+            for name in model_names:
+                print_saved_experiment_details(name, metrics_dir, figures_dir)
+            print(f"Reproduced {len(model_names)} CK+ {model_group} experiment(s) into {model_output_dir}")
+            print(f"Dashboard: {dashboard_path}")
+
+        combined = build_summary(metrics_dir, experiment_names)
+        combined.to_csv(output_dir / "summary_metrics.csv", index=False)
+        save_table_image(combined, output_dir / "summary_metrics_table.png", "CK+ combined summary metrics")
+        save_metric_barplot(combined, group, output_dir / "test_f1_comparison.png")
+        dashboard_path = write_dashboard(output_dir, "CK+ Combined Saved Results")
+        print(f"Reproduced {len(experiment_names)} ckplus_external experiment(s) into {output_dir}")
+        print(f"Dashboard: {dashboard_path}")
+        return
 
     if group == "resnet18":
         missing_expected = [name for name in FINAL_RESNET18_EXPERIMENTS if name not in experiment_names]
@@ -331,8 +558,14 @@ def reproduce_group(group: str, results_dir: Path, output_root: Path) -> None:
     save_training_curves(metrics_dir, experiment_names, group, output_dir / "training_loss_curves.png")
     save_top_confusions(metrics_dir, experiment_names, output_dir)
     copy_confusion_matrices(figures_dir, experiment_names, output_dir)
+    copy_source_reports(metrics_dir, experiment_names, output_dir)
 
+    for name in experiment_names:
+        print_saved_experiment_details(name, metrics_dir, figures_dir)
+
+    dashboard_path = write_dashboard(output_dir, f"{group} Saved Results")
     print(f"Reproduced {len(experiment_names)} {group} experiment(s) into {output_dir}")
+    print(f"Dashboard: {dashboard_path}")
 
 
 def parse_args() -> argparse.Namespace:
@@ -347,6 +580,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--results-dir", type=Path, default=Path("results"))
     parser.add_argument("--output-root", type=Path, default=Path("reports/generated/saved_results"))
+    parser.add_argument("--open", action="store_true", help="Open generated dashboard(s) in the default browser.")
     return parser.parse_args()
 
 
@@ -355,6 +589,10 @@ def main() -> None:
     groups = ["baseline", "resnet18", "efficientnet_b0", "ckplus_external"] if args.group == "all" else [args.group]
     for group in groups:
         reproduce_group(group, args.results_dir, args.output_root)
+        if args.open:
+            dashboard = args.output_root / group / "index.html"
+            if dashboard.exists():
+                webbrowser.open(dashboard.resolve().as_uri())
 
 
 if __name__ == "__main__":

@@ -46,6 +46,12 @@ To regenerate every group with one command:
 python scripts/reproduce_saved_results.py --group all
 ```
 
+To open the generated plot dashboard immediately in a browser, add `--open`:
+
+```bash
+python scripts/reproduce_saved_results.py --group resnet18 --open
+```
+
 ### Full Evaluation From Checkpoints
 
 To recompute metrics by loading the trained checkpoints and running inference on
@@ -75,6 +81,15 @@ reports/generated/evaluated_results/
 This path is slower than the saved-results script, but still much faster than
 training because it only runs model inference.
 
+The CK+ script evaluates the final baseline CNN, ResNet18, and EfficientNet-B0
+checkpoints. To run only one CK+ model family:
+
+```bash
+python scripts/evaluate_ckplus_external.py --group baseline
+python scripts/evaluate_ckplus_external.py --group resnet18
+python scripts/evaluate_ckplus_external.py --group efficientnet_b0
+```
+
 ## Saved Artifacts
 
 The experiment artifacts are organized as follows:
@@ -88,6 +103,20 @@ results/
 reports/generated/
   saved_results/        # regenerated assets from reproduce_saved_results.py
   evaluated_results/    # regenerated metrics/figures from evaluate_*.py
+```
+
+For CK+ external validation, outputs are separated by model family:
+
+```text
+reports/generated/saved_results/ckplus_external/
+  baseline/
+  resnet18/
+  efficientnet_b0/
+
+reports/generated/evaluated_results/ckplus_external/
+  baseline/
+  resnet18/
+  efficientnet_b0/
 ```
 
 Generated files under `reports/generated/` are ignored by Git and can be

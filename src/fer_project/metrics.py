@@ -58,6 +58,75 @@ def collect_predictions_with_crops(model, loader, device):
     return np.array(y_true), np.array(y_pred)
 
 
+@torch.no_grad()
+def collect_prediction_details(model, loader, device, class_names: list[str] | None = None) -> pd.DataFrame:
+    """Collect labels, predictions, probabilities, and confidence values.
+
+    This supports both ordinary image batches shaped ``(B, C, H, W)`` and
+    TenCrop-style batches shaped ``(B, crops, C, H, W)``. For crop batches,
+    logits are averaged across crops before probabilities are computed.
+    """
+    model.eval()
+    class_names = class_names or [EMOTION_LABELS[i] for i in range(len(EMOTION_LABELS))]
+    rows = []
+    sample_index = 0
+
+    for images, labels in loader:
+        if images.ndim == 5:
+            batch_size, num_crops, channels, height, width = images.shape
+            images = images.view(-1, channels, height, width).to(device)
+            logits = model(images).view(batch_size, num_crops, -1).mean(dim=1)
+        else:
+            images = images.to(device)
+            logits = model(images)
+
+        probs = torch.softmax(logits, dim=1)
+        confidence, predictions = probs.max(dim=1)
+
+        for true_label, pred_label, conf, prob_row in zip(
+            labels.cpu().tolist(),
+            predictions.cpu().tolist(),
+            confidence.cpu().tolist(),
+            probs.cpu().tolist(),
+        ):
+            row = {
+                "sample_index": sample_index,
+                "true_label": int(true_label),
+                "true_emotion": class_names[int(true_label)],
+                "predicted_label": int(pred_label),
+                "predicted_emotion": class_names[int(pred_label)],
+                "confidence": float(conf),
+                "correct": int(true_label) == int(pred_label),
+            }
+            for class_index, class_name in enumerate(class_names):
+                row[f"prob_{class_name}"] = float(prob_row[class_index])
+            rows.append(row)
+            sample_index += 1
+
+    return pd.DataFrame(rows)
+
+
+def confidence_summary(prediction_details: pd.DataFrame) -> pd.DataFrame:
+    """Summarize confidence for correct and incorrect predictions."""
+    if prediction_details.empty:
+        return pd.DataFrame()
+    return prediction_details.groupby("correct")["confidence"].describe()
+
+
+def high_confidence_errors(
+    prediction_details: pd.DataFrame,
+    threshold: float = 0.8,
+    top_n: int = 20,
+) -> pd.DataFrame:
+    """Return the most confident wrong predictions."""
+    if prediction_details.empty:
+        return pd.DataFrame()
+    errors = prediction_details[
+        (~prediction_details["correct"]) & (prediction_details["confidence"] >= threshold)
+    ]
+    return errors.sort_values("confidence", ascending=False).head(top_n)
+
+
 def classification_metrics(y_true, y_pred) -> dict:
     """Compute FER2013 F1 scores and a per-class classification report.
 
