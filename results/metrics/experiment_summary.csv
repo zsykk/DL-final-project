@@ -1,6 +1,0 @@
-,group,final_val_loss,best_val_loss,final_val_macro_f1,best_val_macro_f1,test_macro_f1,test_weighted_f1,top_confusion
-baseline_cnn_deeper_weighted_sampler_focal_sgd_plateau_lr_80epochs,capacity_check,0.6604389431999951,0.6604389431999951,0.6437768949153592,0.6466875256236762,0.623813747037712,0.6494043558314283,sad -> neutral
-baseline_cnn_deeper_weighted_sampler_focal_sgd_plateau_lr,capacity_check,0.6720698818097132,0.6699946097795971,0.6331556333876522,0.6386760609283674,0.6197309352675698,0.6436791900640435,sad -> neutral
-baseline_cnn_aug_weighted_sampler_focal_sgd_plateau_lr,advanced_baseline,0.7017645754465243,0.700370614993863,0.6078099373341634,0.6133093892465223,0.6032863018038009,0.6261624788933916,sad -> neutral
-baseline_cnn_aug_weighted_sampler_cross_entropy_sgd_plateau_lr,advanced_baseline_ablation,0.963079719634837,0.9452413414413504,0.6034558296755002,0.6164615092122817,0.5945369451614801,0.6193826032923043,fear -> sad
-baseline_cnn_aug_oversampling_focal_loss,optional_imbalance,1.2573643746691714,1.2415213225195216,0.4859194512047469,0.4859194512047469,0.482733277942558,0.5250251972078269,angry -> sad
