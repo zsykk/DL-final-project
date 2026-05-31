@@ -17,8 +17,8 @@
     "contempt",
     "neutral"
   ],
-  "macro_f1": 0.13611256572359148,
-  "weighted_f1": 0.1660742691109439,
+  "macro_f1": 0.6696882143672901,
+  "weighted_f1": 0.75426586090245,
   "fer_labels": [
     "angry",
     "disgust",
