@@ -1,0 +1,58 @@
+{
+  "name": "baseline_cnn_deeper_weighted_sampler_cross_entropy_sgd_plateau_lr",
+  "model": "baseline_cnn",
+  "baseline_model_kwargs": {
+    "baseline_feature_channels": [
+      32,
+      64,
+      128,
+      256
+    ],
+    "baseline_block_depths": [
+      2,
+      2,
+      2,
+      1
+    ],
+    "baseline_dropout2d": [
+      0.15,
+      0.2,
+      0.25,
+      0.0
+    ],
+    "baseline_classifier_hidden_layers": [
+      512,
+      256
+    ],
+    "baseline_dropout": 0.4
+  },
+  "optimizer_name": "sgd_plateau",
+  "epochs": 60,
+  "lr": 0.01,
+  "weight_decay": 0.0005,
+  "lr_decay_rate": 0.1,
+  "lr_plateau_patience": 5,
+  "lr_plateau_threshold": 0.001,
+  "min_lr": 1e-06,
+  "use_class_weights": false,
+  "weighted_sampler": true,
+  "oversample": false,
+  "loss_name": "cross_entropy",
+  "focal_gamma": 1.0,
+  "batch_size": 128,
+  "num_workers": 0,
+  "subset_fraction": 1.0,
+  "class_names": [
+    "angry",
+    "disgust",
+    "fear",
+    "happy",
+    "sad",
+    "surprise",
+    "neutral"
+  ],
+  "selection_rule": "highest validation macro F1; lower validation loss tie-breaker",
+  "train_transform": "48x48 grayscale, augment=True",
+  "eval_transform": "48x48 grayscale, augment=False",
+  "checkpoint": "/kaggle/working/DL-final-project/results/checkpoints/baseline_cnn_deeper_weighted_sampler_cross_entropy_sgd_plateau_lr.pt"
+}
