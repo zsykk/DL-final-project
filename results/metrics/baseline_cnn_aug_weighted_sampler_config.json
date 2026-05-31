@@ -1,0 +1,26 @@
+{
+  "name": "baseline_cnn_aug_weighted_sampler",
+  "group": "optional_imbalance",
+  "model_kind": "baseline_cnn",
+  "train_config": "TransformConfig(image_size=48, channels=1, augment=True, imagenet_norm=False)",
+  "eval_config": "TransformConfig(image_size=48, channels=1, augment=False, imagenet_norm=False)",
+  "lr": 0.001,
+  "epochs": 30,
+  "use_class_weights": false,
+  "weighted_sampler": true,
+  "loss_name": "cross_entropy",
+  "batch_size": 128,
+  "num_workers": 0,
+  "subset_fraction": 1.0,
+  "class_names": [
+    "angry",
+    "disgust",
+    "fear",
+    "happy",
+    "sad",
+    "surprise",
+    "neutral"
+  ],
+  "selection_rule": "best validation checkpoint saved by training helper",
+  "checkpoint": "/kaggle/working/DL-final-project/results/checkpoints/baseline_cnn_aug_weighted_sampler.pt"
+}

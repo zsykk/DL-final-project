@@ -1,0 +1,11 @@
+true_emotion,predicted_emotion,count,true_class_rate
+fear,sad,326,0.318359375
+sad,neutral,274,0.21972734562951082
+neutral,sad,273,0.22141119221411193
+angry,sad,270,0.2818371607515658
+fear,neutral,155,0.1513671875
+fear,surprise,151,0.1474609375
+angry,neutral,134,0.13987473903966596
+fear,angry,132,0.12890625
+neutral,happy,100,0.08110300081103
+happy,neutral,95,0.05355129650507328
