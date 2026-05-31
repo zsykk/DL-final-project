@@ -25,6 +25,7 @@ from evaluate_common import (  # noqa: E402
     infer_baseline_model_from_state_dict,
     load_state_dict,
     open_dashboard,
+    status,
     transfer_tencrop_transform,
     write_evaluation_dashboard,
 )
@@ -60,37 +61,6 @@ CKPLUS_EVALUATIONS = [
     },
     {
         "group": "resnet18",
-        "name": "resnet18_layer3_class_weights_focal_sgd_plateau_lr_ckplus_external_rgb",
-        "checkpoint": "resnet18_layer3_class_weights_focal_sgd_plateau_lr.pt",
-        "model_kind": "transfer",
-        "transfer_model": "resnet18",
-        "classifier_hidden_layers": [256],
-        "classifier_dropout": 0.4,
-        "preprocessing": "rgb",
-    },
-    {
-        "group": "resnet18",
-        "name": "resnet18_layer3_class_weights_focal_sgd_plateau_lr_ckplus_external_grayscale_to_3ch",
-        "checkpoint": "resnet18_layer3_class_weights_focal_sgd_plateau_lr.pt",
-        "model_kind": "transfer",
-        "transfer_model": "resnet18",
-        "classifier_hidden_layers": [256],
-        "classifier_dropout": 0.4,
-        "preprocessing": "grayscale_to_3ch",
-    },
-    {
-        "group": "resnet18",
-        "name": "resnet18_layer3_class_weights_focal_sgd_plateau_lr_crop_tencrop_ckplus_external_rgb",
-        "checkpoint": "resnet18_layer3_class_weights_focal_sgd_plateau_lr_crop_tencrop.pt",
-        "model_kind": "transfer",
-        "transfer_model": "resnet18",
-        "classifier_hidden_layers": [256],
-        "classifier_dropout": 0.4,
-        "preprocessing": "rgb_tencrop",
-        "use_crops": True,
-    },
-    {
-        "group": "resnet18",
         "name": "resnet18_layer3_class_weights_focal_sgd_plateau_lr_crop_tencrop_ckplus_external_grayscale_to_3ch",
         "checkpoint": "resnet18_layer3_class_weights_focal_sgd_plateau_lr_crop_tencrop.pt",
         "model_kind": "transfer",
@@ -99,16 +69,6 @@ CKPLUS_EVALUATIONS = [
         "classifier_dropout": 0.4,
         "preprocessing": "grayscale_tencrop",
         "use_crops": True,
-    },
-    {
-        "group": "efficientnet_b0",
-        "name": "efficientnet_b0_last_three_blocks_weighted_sampler_sgd_plateau_lr_ckplus_external",
-        "checkpoint": "efficientnet_b0_last_three_blocks_weighted_sampler_sgd_plateau_lr.pt",
-        "model_kind": "transfer",
-        "transfer_model": "efficientnet_b0",
-        "classifier_hidden_layers": [256],
-        "classifier_dropout": 0.4,
-        "preprocessing": "grayscale_to_3ch",
     },
     {
         "group": "efficientnet_b0",
@@ -156,7 +116,7 @@ def infer_label_from_path(path: Path, include_neutral: bool) -> tuple[int | None
 
 
 def discover_ckplus_images(ckplus_root: Path, include_neutral: bool) -> pd.DataFrame:
-    print(f"Scanning CK+ images under {ckplus_root} ...")
+    status(f"Scanning CK+ images under {ckplus_root} ...", "processing")
     image_paths = sorted(path for path in ckplus_root.rglob("*") if path.suffix.lower() in IMAGE_SUFFIXES)
     rows = []
     for path in image_paths:
@@ -167,7 +127,7 @@ def discover_ckplus_images(ckplus_root: Path, include_neutral: bool) -> pd.DataF
     frame = pd.DataFrame(rows)
     if frame.empty:
         raise ValueError(f"No CK+ images were mapped under {ckplus_root}")
-    print(f"Found {len(image_paths)} image files; mapped {len(frame)} images for evaluation.")
+    status(f"Found {len(image_paths)} image files; mapped {len(frame)} images for evaluation.", "done")
     return frame
 
 
@@ -210,7 +170,7 @@ def build_transform(preprocessing: str):
 
 def build_model_for_spec(spec: dict, checkpoint_dir: Path, device: torch.device):
     checkpoint_path = checkpoint_dir / spec["checkpoint"]
-    print(f"Loading {spec['group']} checkpoint for {spec['name']} ...")
+    status(f"Loading {spec['group']} checkpoint for {spec['name']} ...", "processing")
     state_dict = load_state_dict(checkpoint_path, device)
     if spec["model_kind"] == "baseline":
         model = infer_baseline_model_from_state_dict(state_dict)
@@ -286,11 +246,12 @@ def save_ckplus_outputs(name: str, y_true, y_pred, output_dir: Path, shared_eval
 
     cm = confusion_matrix(y_true, y_pred, labels=list(range(len(FER_LABELS))))
     cm_rows = cm[shared_eval_indices, :]
+    cm_rows_normalized = cm_rows.astype(float) / np.maximum(cm_rows.sum(axis=1, keepdims=True), 1)
     top_confusions = top_confusions_from_matrix(cm_rows, shared_eval_labels, FER_LABELS)
     top_confusions.to_csv(output_dir / f"{name}_top_confusions.csv", index=False)
 
     fig, ax = plt.subplots(figsize=(9, 5))
-    image = ax.imshow(cm_rows, cmap="Blues")
+    image = ax.imshow(cm_rows_normalized, cmap="Blues", vmin=0.0, vmax=1.0)
     ax.set_xticks(range(len(FER_LABELS)), FER_LABELS, rotation=45, ha="right")
     ax.set_yticks(range(len(shared_eval_labels)), shared_eval_labels)
     ax.set_xlabel("Predicted")
@@ -298,7 +259,8 @@ def save_ckplus_outputs(name: str, y_true, y_pred, output_dir: Path, shared_eval
     ax.set_title(f"{name} confusion matrix")
     for row in range(cm_rows.shape[0]):
         for column in range(cm_rows.shape[1]):
-            ax.text(column, row, int(cm_rows[row, column]), ha="center", va="center", fontsize=8)
+            value = cm_rows_normalized[row, column]
+            ax.text(column, row, f"{value:.2f}", ha="center", va="center", fontsize=8)
     fig.colorbar(image, ax=ax, fraction=0.046, pad=0.04)
     fig.tight_layout()
     fig.savefig(output_dir / f"{name}_confusion_matrix.png", dpi=200, bbox_inches="tight")
@@ -327,6 +289,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--output-dir", type=Path, default=Path("reports/generated/evaluated_results/ckplus_external"))
     parser.add_argument("--include-neutral", action="store_true")
     parser.add_argument("--batch-size", type=int, default=128)
+    parser.add_argument("--tencrop-batch-size", type=int, default=16)
     parser.add_argument("--num-workers", type=int, default=0)
     parser.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     parser.add_argument("--open", action="store_true", help="Open the generated CK+ dashboard(s).")
@@ -342,37 +305,54 @@ def main() -> None:
     frame = discover_ckplus_images(args.ckplus_root, include_neutral=args.include_neutral)
 
     specs = [spec for spec in CKPLUS_EVALUATIONS if args.group == "all" or spec["group"] == args.group]
-    print(f"Running {len(specs)} CK+ evaluation(s) on device {device}.")
+    status(f"Running {len(specs)} CK+ evaluation(s) on device {device}.", "processing")
     group_summaries = {}
     summaries = []
+    selected_groups = sorted({spec["group"] for spec in specs})
     for spec in specs:
+        use_crops = bool(spec.get("use_crops", False))
+        if use_crops and device.type == "cpu":
+            status("Running CK+ TenCrop on CPU; this can be slow. Lower --tencrop-batch-size if memory is tight.", "processing")
+
         output_dir = args.output_dir / spec["group"]
         output_dir.mkdir(parents=True, exist_ok=True)
         frame["label_name"].value_counts().to_csv(output_dir / "ckplus_class_counts.csv")
-        print(f"\nStarting CK+ evaluation: {spec['name']}")
-        print(f"Preprocessing: {spec['preprocessing']}; crop averaging: {bool(spec.get('use_crops', False))}")
+        print()
+        status(f"Starting CK+ evaluation: {spec['name']}", "processing")
+        status(f"Preprocessing: {spec['preprocessing']}; crop averaging: {use_crops}", "processing")
         dataset = CKPlusExternalDataset(frame, build_transform(spec["preprocessing"]))
-        loader = DataLoader(dataset, batch_size=args.batch_size, shuffle=False, num_workers=args.num_workers)
-        print(f"CK+ batches: {len(loader)}; batch size: {args.batch_size}")
+        batch_size = min(args.batch_size, args.tencrop_batch_size) if use_crops else args.batch_size
+        loader = DataLoader(dataset, batch_size=batch_size, shuffle=False, num_workers=args.num_workers)
+        status(f"CK+ batches: {len(loader)}; batch size: {batch_size}", "processing")
         model = build_model_for_spec(spec, args.checkpoint_dir, device)
-        y_true, y_pred = collect_predictions(model, loader, device, use_crops=bool(spec.get("use_crops", False)))
-        print(f"Finished inference for {spec['name']}; saving metrics and plots...")
+        y_true, y_pred = collect_predictions(model, loader, device, use_crops=use_crops)
+        status(f"Finished inference for {spec['name']}; saving metrics and plots...", "processing")
         summary = save_ckplus_outputs(spec["name"], y_true, y_pred, output_dir, shared_eval_labels)
         summary["group"] = spec["group"]
         summaries.append(summary)
         group_summaries.setdefault(spec["group"], []).append(summary)
-        print(f"Evaluated {spec['name']}")
+        status(f"Evaluated {spec['name']}", "done")
 
     for group, rows in group_summaries.items():
         group_output_dir = args.output_dir / group
         pd.DataFrame(rows).to_csv(group_output_dir / "ckplus_external_evaluation_summary.csv", index=False)
         pd.DataFrame(rows).to_csv(group_output_dir / "evaluation_summary.csv", index=False)
         dashboard_path = write_evaluation_dashboard(group_output_dir, f"CK+ {group} Evaluated Results")
-        print(f"Dashboard: {dashboard_path}")
+        status(f"Dashboard: {dashboard_path}", "done")
+        if args.open:
+            open_dashboard(dashboard_path)
+    for group in selected_groups:
+        if group in group_summaries:
+            continue
+        group_output_dir = args.output_dir / group
+        if not group_output_dir.exists():
+            continue
+        dashboard_path = write_evaluation_dashboard(group_output_dir, f"CK+ {group} Evaluated Results")
+        status(f"Dashboard from existing outputs: {dashboard_path}", "done")
         if args.open:
             open_dashboard(dashboard_path)
     pd.DataFrame(summaries).to_csv(args.output_dir / "ckplus_external_evaluation_summary.csv", index=False)
-    print(f"Wrote CK+ external evaluation results to {args.output_dir}")
+    status(f"Wrote CK+ external evaluation results to {args.output_dir}", "done")
 
 
 if __name__ == "__main__":

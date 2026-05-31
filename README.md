@@ -133,8 +133,9 @@ reports/generated/evaluated_results/
 This path is slower than the saved-results script, but still much faster than
 training because it only runs model inference.
 
-The CK+ script evaluates the final baseline CNN, ResNet18, and EfficientNet-B0
-checkpoints. To run only one CK+ model family:
+The CK+ script evaluates one external-test checkpoint per model family: the
+final baseline CNN, the ResNet18 TenCrop checkpoint, and the EfficientNet-B0
+TenCrop checkpoint. To run only one CK+ model family:
 
 ```bash
 python scripts/evaluate_ckplus_external.py --group baseline
