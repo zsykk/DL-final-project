@@ -11,6 +11,7 @@ from evaluate_common import (
     evaluate_model,
     open_dashboard,
     save_comparison_table,
+    save_evaluation_overview_assets,
     status,
     transfer_eval_loader,
     transfer_tencrop_eval_loader,
@@ -18,15 +19,23 @@ from evaluate_common import (
 )
 
 
+EFFICIENTNET_B0_EXPERIMENTS = [
+    "efficientnet_b0_feature_extract_classifier",
+    "efficientnet_b0_unfreeze_last_block",
+    "efficientnet_b0_unfreeze_last_blocks",
+    "efficientnet_b0_unfreeze_last_three_blocks",
+    "efficientnet_b0_last_three_blocks_weighted_sampler",
+    "efficientnet_b0_last_three_blocks_weighted_sampler_sgd_plateau_lr",
+    "efficientnet_b0_last_three_blocks_weighted_sampler_sgd_plateau_lr_crop_tencrop",
+]
+
+
 def discover_experiments(checkpoint_dir: Path, metrics_dir: Path) -> list[str]:
-    names = []
-    for checkpoint_path in sorted(checkpoint_dir.glob("efficientnet_b0_*.pt")):
-        name = checkpoint_path.stem
-        if "rafdb" in name.lower() or name.endswith("_summary"):
-            continue
-        if (metrics_dir / f"{name}_config.json").exists():
-            names.append(name)
-    return names
+    return [
+        name
+        for name in EFFICIENTNET_B0_EXPERIMENTS
+        if (checkpoint_dir / f"{name}.pt").exists() and (metrics_dir / f"{name}_config.json").exists()
+    ]
 
 
 def load_classifier_config(metrics_dir: Path, name: str) -> tuple[list[int] | None, float]:
@@ -55,6 +64,7 @@ def has_evaluation_outputs(output_dir: Path, name: str) -> bool:
 
 def refresh_dashboard(output_dir: Path, experiment_order: list[str] | None = None) -> Path:
     save_comparison_table(output_dir, experiment_order=experiment_order)
+    save_evaluation_overview_assets(output_dir, experiment_order=experiment_order)
     return write_evaluation_dashboard(
         output_dir,
         "EfficientNet-B0 Evaluated Results",
@@ -68,7 +78,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--checkpoint-dir", type=Path, default=Path("results/checkpoints"))
     parser.add_argument("--metrics-dir", type=Path, default=Path("results/metrics"))
     parser.add_argument("--output-dir", type=Path, default=Path("reports/generated/evaluated_results/efficientnet_b0"))
-    parser.add_argument("--experiment", action="append")
+    parser.add_argument("--experiment", action="append", choices=EFFICIENTNET_B0_EXPERIMENTS)
     parser.add_argument("--batch-size", type=int, default=128)
     parser.add_argument("--tencrop-batch-size", type=int, default=16)
     parser.add_argument("--num-workers", type=int, default=0)

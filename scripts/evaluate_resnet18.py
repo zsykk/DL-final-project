@@ -11,6 +11,7 @@ from evaluate_common import (
     evaluate_model,
     open_dashboard,
     save_comparison_table,
+    save_evaluation_overview_assets,
     status,
     transfer_eval_loader,
     transfer_tencrop_eval_loader,
@@ -22,12 +23,8 @@ RESNET18_EXPERIMENTS = [
     "resnet18_feature_extract_fc",
     "resnet18_unfreeze_layer4",
     "resnet18_unfreeze_layer3",
-    "resnet18_unfreeze_layer2",
     "resnet18_layer3_class_weights",
-    "resnet18_layer3_weighted_sampler",
-    "resnet18_layer3_focal",
     "resnet18_layer3_class_weights_focal",
-    "resnet18_layer3_weighted_sampler_focal",
     "resnet18_layer3_class_weights_focal_sgd_plateau_lr",
     "resnet18_layer3_class_weights_focal_sgd_plateau_lr_crop_tencrop",
 ]
@@ -59,6 +56,7 @@ def has_evaluation_outputs(output_dir: Path, name: str) -> bool:
 
 def refresh_dashboard(output_dir: Path) -> Path:
     save_comparison_table(output_dir, experiment_order=RESNET18_EXPERIMENTS)
+    save_evaluation_overview_assets(output_dir, experiment_order=RESNET18_EXPERIMENTS)
     return write_evaluation_dashboard(
         output_dir,
         "ResNet18 Evaluated Results",

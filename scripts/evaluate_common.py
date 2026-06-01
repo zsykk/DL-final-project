@@ -308,12 +308,14 @@ def _ordered_report_paths(output_dir: Path, experiment_order: list[str] | None =
         return sorted(report_paths)
 
     order_index = {name: index for index, name in enumerate(experiment_order)}
+    report_paths = [
+        path
+        for path in report_paths
+        if path.name.removesuffix("_classification_report.csv") in order_index
+    ]
     return sorted(
         report_paths,
-        key=lambda path: (
-            order_index.get(path.name.removesuffix("_classification_report.csv"), len(order_index)),
-            path.name,
-        ),
+        key=lambda path: order_index[path.name.removesuffix("_classification_report.csv")],
     )
 
 
@@ -348,6 +350,111 @@ def save_comparison_table(output_dir: Path, experiment_order: list[str] | None =
     plt.close()
 
 
+def save_table_image(frame: pd.DataFrame, output_path: Path, title: str, max_rows: int = 16) -> None:
+    display_frame = frame.head(max_rows).copy()
+    for column in display_frame.columns:
+        if pd.api.types.is_float_dtype(display_frame[column]):
+            display_frame[column] = display_frame[column].map(lambda value: "" if pd.isna(value) else f"{value:.4f}")
+
+    fig_height = max(2.5, 0.42 * len(display_frame) + 1.2)
+    fig_width = max(9, min(18, 1.2 * len(display_frame.columns) + 4))
+    fig, ax = plt.subplots(figsize=(fig_width, fig_height))
+    ax.axis("off")
+    ax.set_title(title, fontsize=13, weight="bold", pad=12)
+    table = ax.table(
+        cellText=display_frame.values,
+        colLabels=display_frame.columns,
+        loc="center",
+        cellLoc="center",
+    )
+    table.auto_set_font_size(False)
+    table.set_fontsize(8)
+    table.scale(1, 1.35)
+    for (row, _), cell in table.get_celld().items():
+        if row == 0:
+            cell.set_text_props(weight="bold", color="white")
+            cell.set_facecolor("#2f3b52")
+        else:
+            cell.set_facecolor("#f6f7fb" if row % 2 == 0 else "white")
+    fig.tight_layout()
+    fig.savefig(output_path, dpi=200, bbox_inches="tight")
+    plt.close(fig)
+
+
+def save_evaluation_overview_assets(output_dir: Path, experiment_order: list[str] | None = None) -> None:
+    summary_path = output_dir / "evaluation_summary.csv"
+    if summary_path.exists():
+        summary = pd.read_csv(summary_path)
+        save_table_image(summary, output_dir / "summary_metrics_table.png", "Evaluation summary metrics")
+
+    validation_rows = []
+    heatmap_rows = []
+    top_confusion_frames = []
+    for report_path in _ordered_report_paths(output_dir, experiment_order):
+        name = report_path.name.removesuffix("_classification_report.csv")
+        report = pd.read_csv(report_path, index_col=0)
+        history_path = PROJECT_ROOT / "results" / "metrics" / f"{name}_history.csv"
+        if history_path.exists():
+            history = pd.read_csv(history_path)
+            best_row = history.sort_values(["val_macro_f1", "val_loss"], ascending=[False, True]).iloc[0]
+            validation_rows.append({"experiment": name, "best_val_macro_f1": best_row["val_macro_f1"]})
+
+        for label in [EMOTION_LABELS[index] for index in range(len(EMOTION_LABELS))]:
+            if label in report.index:
+                heatmap_rows.append({"experiment": name, "emotion": label, "f1": report.loc[label, "f1-score"]})
+
+        confusions_path = output_dir / f"{name}_top_confusions.csv"
+        if confusions_path.exists():
+            frame = pd.read_csv(confusions_path).head(8)
+            frame.insert(0, "experiment", name)
+            top_confusion_frames.append(frame)
+
+    if validation_rows:
+        validation = pd.DataFrame(validation_rows)
+        plt.figure(figsize=(max(7, 0.55 * len(validation)), 4.5))
+        ax = sns.barplot(data=validation, x="experiment", y="best_val_macro_f1", color="#4C78A8")
+        ax.set_xlabel("")
+        ax.set_ylabel("Best validation Macro F1")
+        ax.set_ylim(0, min(1.0, max(0.75, validation["best_val_macro_f1"].max() + 0.08)))
+        ax.set_xticklabels([label.replace("_", "\n") for label in validation["experiment"]], fontsize=7)
+        plt.tight_layout()
+        plt.savefig(output_dir / "validation_macro_f1_comparison.png", dpi=200, bbox_inches="tight")
+        plt.close()
+
+    if heatmap_rows:
+        heatmap_frame = pd.DataFrame(heatmap_rows)
+        pivot = heatmap_frame.pivot(index="experiment", columns="emotion", values="f1")
+        plt.figure(figsize=(11, max(3.8, 0.55 * len(pivot))))
+        ax = sns.heatmap(
+            pivot,
+            annot=True,
+            fmt=".3f",
+            cmap="YlGnBu",
+            vmin=0,
+            vmax=1,
+            linewidths=0.5,
+            annot_kws={"fontsize": 8},
+        )
+        ax.set_xlabel("Emotion")
+        ax.set_ylabel("")
+        ax.set_title("Per-class test F1")
+        ax.set_xticklabels(ax.get_xticklabels(), rotation=25, ha="right")
+        ax.set_yticklabels(ax.get_yticklabels(), rotation=0)
+        plt.tight_layout()
+        plt.savefig(output_dir / "per_class_f1_heatmap.png", dpi=200, bbox_inches="tight")
+        plt.close()
+
+    if top_confusion_frames:
+        combined = pd.concat(top_confusion_frames, ignore_index=True)
+        combined.to_csv(output_dir / "top_confusions.csv", index=False)
+        save_table_image(
+            combined,
+            output_dir / "top_confusions_table.png",
+            "Top Confusions",
+            max_rows=min(24, len(combined)),
+        )
+
+
 def _relative_link(path: Path, base_dir: Path) -> str:
     return html.escape(os.path.relpath(path, base_dir).replace("\\", "/"))
 
@@ -364,11 +471,30 @@ def write_evaluation_dashboard(output_dir: Path, title: str, experiment_order: l
         )
 
     comparison_html = ""
-    comparison_path = output_dir / "evaluation_f1_comparison.png"
-    if comparison_path.exists():
-        comparison_html = (
-            f'<section><h2>F1 Comparison</h2><img src="{_relative_link(comparison_path, output_dir)}" '
-            'alt="F1 comparison"></section>'
+    plot_files = [
+        path
+        for path in [
+            output_dir / "evaluation_f1_comparison.png",
+            output_dir / "validation_macro_f1_comparison.png",
+            output_dir / "per_class_f1_heatmap.png",
+        ]
+        if path.exists()
+    ]
+    for path in plot_files:
+        label = path.stem.replace("_", " ").title()
+        comparison_html += (
+            f'<section><h2>{html.escape(label)}</h2><img src="{_relative_link(path, output_dir)}" '
+            f'alt="{html.escape(label)}"></section>'
+        )
+
+    confusions_html = ""
+    confusions_csv = output_dir / "top_confusions.csv"
+    if confusions_csv.exists():
+        confusions = pd.read_csv(confusions_csv)
+        confusions_html = (
+            "<section><h2>Top Confusions</h2>"
+            + confusions.head(24).round(4).to_html(index=False, classes="table", border=0)
+            + "</section>"
         )
 
     cards = []
@@ -409,7 +535,7 @@ def write_evaluation_dashboard(output_dir: Path, title: str, experiment_order: l
               <h3>{html.escape(name)}</h3>
               <div class="experiment-layout">
                 <div>{''.join(parts)}</div>
-                {matrix_html}
+                <div class="plot-stack">{matrix_html}</div>
               </div>
             </article>
             """
@@ -423,13 +549,16 @@ def write_evaluation_dashboard(output_dir: Path, title: str, experiment_order: l
   <title>{html.escape(title)}</title>
   <style>
     body {{ font-family: Arial, sans-serif; margin: 24px; color: #1f2933; background: #f7f8fb; }}
-    section, .experiment-card {{ background: white; border: 1px solid #d9dee8; border-radius: 8px; padding: 16px; margin: 18px 0; }}
+    h1 {{ margin-bottom: 8px; }}
+    section {{ background: white; border: 1px solid #d9dee8; border-radius: 8px; padding: 16px; margin: 18px 0; }}
     img {{ max-width: 100%; height: auto; display: block; }}
     .table {{ width: 100%; border-collapse: collapse; font-size: 13px; }}
     .table th {{ background: #2f3b52; color: white; text-align: left; padding: 8px; }}
     .table td {{ border-bottom: 1px solid #e4e7ec; padding: 7px 8px; }}
     .table tr:nth-child(even) td {{ background: #f6f7fb; }}
+    .experiment-card {{ border-top: 1px solid #e4e7ec; margin-top: 18px; padding-top: 16px; }}
     .experiment-layout {{ display: grid; grid-template-columns: minmax(320px, 1fr) minmax(320px, 0.9fr); gap: 18px; align-items: start; }}
+    .plot-stack {{ display: grid; gap: 14px; }}
     .compact {{ font-size: 12px; }}
     h3 {{ overflow-wrap: anywhere; }}
     h4 {{ margin: 12px 0 6px; }}
@@ -443,6 +572,7 @@ def write_evaluation_dashboard(output_dir: Path, title: str, experiment_order: l
   <p>Generated by checkpoint evaluation scripts.</p>
   {summary_html}
   {comparison_html}
+  {confusions_html}
   <section><h2>Per-Experiment Details</h2>{''.join(cards)}</section>
 </body>
 </html>

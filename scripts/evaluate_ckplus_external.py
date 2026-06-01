@@ -54,8 +54,8 @@ IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".bmp", ".tif", ".tiff"}
 CKPLUS_EVALUATIONS = [
     {
         "group": "baseline",
-        "name": "baseline_cnn_deeper_weighted_sampler_focal_sgd_plateau_lr_80epochs_ckplus_external",
-        "checkpoint": "baseline_cnn_deeper_weighted_sampler_focal_sgd_plateau_lr_80epochs.pt",
+        "name": "baseline_cnn_crop_tencrop_weighted_sampler_cross_entropy_sgd_plateau_lr_80epochs_ckplus_external",
+        "checkpoint": "baseline_cnn_crop_tencrop_weighted_sampler_cross_entropy_sgd_plateau_lr_80epochs.pt",
         "model_kind": "baseline",
         "preprocessing": "baseline_grayscale",
     },

@@ -12,13 +12,23 @@ from evaluate_common import (
     load_state_dict,
     open_dashboard,
     save_comparison_table,
+    save_evaluation_overview_assets,
     status,
     write_evaluation_dashboard,
 )
 
 
+BASELINE_EXPERIMENTS = [
+    "baseline_cnn_aug",
+    "baseline_cnn_aug_weighted_sampler",
+    "baseline_cnn_aug_weighted_sampler_cross_entropy_sgd_plateau_lr",
+    "baseline_cnn_crop_tencrop_weighted_sampler_cross_entropy_sgd_plateau_lr",
+    "baseline_cnn_crop_tencrop_weighted_sampler_cross_entropy_sgd_plateau_lr_80epochs",
+]
+
+
 def discover_experiments(checkpoint_dir: Path) -> list[str]:
-    return sorted(path.stem for path in checkpoint_dir.glob("baseline_cnn_*.pt"))
+    return [name for name in BASELINE_EXPERIMENTS if (checkpoint_dir / f"{name}.pt").exists()]
 
 
 def parse_args() -> argparse.Namespace:
@@ -26,7 +36,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--data-dir", type=Path, default=Path("data/raw/fer2013_images"))
     parser.add_argument("--checkpoint-dir", type=Path, default=Path("results/checkpoints"))
     parser.add_argument("--output-dir", type=Path, default=Path("reports/generated/evaluated_results/baseline"))
-    parser.add_argument("--experiment", action="append")
+    parser.add_argument("--experiment", action="append", choices=BASELINE_EXPERIMENTS)
     parser.add_argument("--batch-size", type=int, default=128)
     parser.add_argument("--num-workers", type=int, default=0)
     parser.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
@@ -61,8 +71,13 @@ def main() -> None:
         evaluate_model(model, loader, device, name, args.output_dir, use_crops=use_crops)
         status(f"Evaluated {name}", "done")
 
-    save_comparison_table(args.output_dir)
-    dashboard_path = write_evaluation_dashboard(args.output_dir, "Baseline CNN Evaluated Results")
+    save_comparison_table(args.output_dir, experiment_order=BASELINE_EXPERIMENTS)
+    save_evaluation_overview_assets(args.output_dir, experiment_order=BASELINE_EXPERIMENTS)
+    dashboard_path = write_evaluation_dashboard(
+        args.output_dir,
+        "Baseline CNN Evaluated Results",
+        experiment_order=BASELINE_EXPERIMENTS,
+    )
     status(f"Wrote evaluated baseline results to {args.output_dir}", "done")
     status(f"Dashboard: {dashboard_path}", "output")
     if args.open:

@@ -16,18 +16,35 @@ import seaborn as sns
 
 
 EMOTION_ROWS = ["angry", "disgust", "fear", "happy", "sad", "surprise", "neutral"]
+FINAL_BASELINE_EXPERIMENTS = [
+    "baseline_cnn_aug",
+    "baseline_cnn_aug_weighted_sampler",
+    "baseline_cnn_aug_weighted_sampler_cross_entropy_sgd_plateau_lr",
+    "baseline_cnn_crop_tencrop_weighted_sampler_cross_entropy_sgd_plateau_lr",
+    "baseline_cnn_crop_tencrop_weighted_sampler_cross_entropy_sgd_plateau_lr_80epochs",
+]
 FINAL_RESNET18_EXPERIMENTS = [
     "resnet18_feature_extract_fc",
     "resnet18_unfreeze_layer4",
     "resnet18_unfreeze_layer3",
-    "resnet18_unfreeze_layer2",
     "resnet18_layer3_class_weights",
-    "resnet18_layer3_weighted_sampler",
-    "resnet18_layer3_focal",
     "resnet18_layer3_class_weights_focal",
-    "resnet18_layer3_weighted_sampler_focal",
     "resnet18_layer3_class_weights_focal_sgd_plateau_lr",
     "resnet18_layer3_class_weights_focal_sgd_plateau_lr_crop_tencrop",
+]
+FINAL_EFFICIENTNET_B0_EXPERIMENTS = [
+    "efficientnet_b0_feature_extract_classifier",
+    "efficientnet_b0_unfreeze_last_block",
+    "efficientnet_b0_unfreeze_last_blocks",
+    "efficientnet_b0_unfreeze_last_three_blocks",
+    "efficientnet_b0_last_three_blocks_weighted_sampler",
+    "efficientnet_b0_last_three_blocks_weighted_sampler_sgd_plateau_lr",
+    "efficientnet_b0_last_three_blocks_weighted_sampler_sgd_plateau_lr_crop_tencrop",
+]
+FINAL_CKPLUS_EXTERNAL_EXPERIMENTS = [
+    "baseline_cnn_crop_tencrop_weighted_sampler_cross_entropy_sgd_plateau_lr_80epochs_ckplus_external",
+    "resnet18_layer3_class_weights_focal_sgd_plateau_lr_crop_tencrop_ckplus_external_grayscale_to_3ch",
+    "efficientnet_b0_last_three_blocks_weighted_sampler_sgd_plateau_lr_crop_tencrop_ckplus_external",
 ]
 
 
@@ -56,17 +73,17 @@ def discover_experiments(metrics_dir: Path, group: str) -> list[str]:
     }
 
     if group == "baseline":
-        selected = [name for name in names if name.startswith("baseline_cnn_")]
+        selected = [name for name in FINAL_BASELINE_EXPERIMENTS if name in names]
     elif group == "resnet18":
         selected = [name for name in FINAL_RESNET18_EXPERIMENTS if name in names]
     elif group == "efficientnet_b0":
-        selected = [name for name in names if name.startswith("efficientnet_b0_") and not name.endswith("_summary")]
+        selected = [name for name in FINAL_EFFICIENTNET_B0_EXPERIMENTS if name in names]
     elif group == "ckplus_external":
-        selected = [name for name in names if "ckplus_external" in name.lower()]
+        selected = [name for name in FINAL_CKPLUS_EXTERNAL_EXPERIMENTS if name in names]
     else:
         raise ValueError(f"Unknown group: {group}")
 
-    return sorted(name for name in selected if not is_excluded_name(name))
+    return [name for name in selected if not is_excluded_name(name)]
 
 
 def ckplus_model_group(name: str) -> str:
@@ -333,11 +350,20 @@ def save_top_confusions(metrics_dir: Path, experiment_names: list[str], output_d
     )
 
 
-def copy_confusion_matrices(figures_dir: Path, experiment_names: list[str], output_dir: Path) -> None:
+def copy_confusion_matrices(
+    figures_dir: Path,
+    experiment_names: list[str],
+    output_dir: Path,
+    preferred_dirs: list[Path] | None = None,
+) -> None:
     matrix_dir = output_dir / "confusion_matrices"
     matrix_dir.mkdir(parents=True, exist_ok=True)
     for name in experiment_names:
-        source = figures_dir / f"{name}_confusion_matrix.png"
+        filename = f"{name}_confusion_matrix.png"
+        source = next(
+            (candidate for directory in preferred_dirs or [] if (candidate := directory / filename).exists()),
+            figures_dir / filename,
+        )
         if source.exists():
             shutil.copy2(source, matrix_dir / source.name)
 
@@ -534,6 +560,7 @@ def print_saved_experiment_details(name: str, metrics_dir: Path, figures_dir: Pa
 def reproduce_group(group: str, results_dir: Path, output_root: Path) -> None:
     metrics_dir = results_dir / "metrics"
     figures_dir = results_dir / "figures"
+    ckplus_evaluated_dir = output_root.parent / "evaluated_results" / "ckplus_external"
     output_dir = output_root / group
     if output_dir.exists():
         shutil.rmtree(output_dir)
@@ -557,7 +584,12 @@ def reproduce_group(group: str, results_dir: Path, output_root: Path) -> None:
             save_per_class_heatmap(metrics_dir, model_names, model_group, model_output_dir / "per_class_f1_heatmap.png")
             save_individual_loss_curves(metrics_dir, model_names, model_output_dir)
             save_top_confusions(metrics_dir, model_names, model_output_dir)
-            copy_confusion_matrices(figures_dir, model_names, model_output_dir)
+            copy_confusion_matrices(
+                figures_dir,
+                model_names,
+                model_output_dir,
+                preferred_dirs=[ckplus_evaluated_dir / model_group],
+            )
             copy_source_reports(metrics_dir, model_names, model_output_dir)
             dashboard_path = write_dashboard(model_output_dir, f"CK+ {model_group} Saved Results")
             for name in model_names:
@@ -569,6 +601,18 @@ def reproduce_group(group: str, results_dir: Path, output_root: Path) -> None:
         combined.to_csv(output_dir / "summary_metrics.csv", index=False)
         save_table_image(combined, output_dir / "summary_metrics_table.png", "CK+ combined summary metrics")
         save_metric_barplot(combined, group, output_dir / "test_f1_comparison.png")
+        save_top_confusions(metrics_dir, experiment_names, output_dir)
+        copy_confusion_matrices(
+            figures_dir,
+            experiment_names,
+            output_dir,
+            preferred_dirs=[
+                ckplus_evaluated_dir / "baseline",
+                ckplus_evaluated_dir / "resnet18",
+                ckplus_evaluated_dir / "efficientnet_b0",
+            ],
+        )
+        copy_source_reports(metrics_dir, experiment_names, output_dir)
         dashboard_path = write_dashboard(output_dir, "CK+ Combined Saved Results")
         print(f"Reproduced {len(experiment_names)} ckplus_external experiment(s) into {output_dir}")
         print(f"Dashboard: {dashboard_path}")
