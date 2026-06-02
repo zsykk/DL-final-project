@@ -10,7 +10,7 @@ Download the datasets from Kaggle:
 - FER2013: https://www.kaggle.com/datasets/msambare/fer2013
 - CK+: https://www.kaggle.com/datasets/shuvoalok/ck-dataset
 
-The main training and FER2013 test dataset is the FER2013 image-folder dataset.
+The main training and test dataset is the FER2013 image-folder dataset.
 After downloading and extracting it locally, place the folder that directly
 contains `train/` and `test/` here:
 

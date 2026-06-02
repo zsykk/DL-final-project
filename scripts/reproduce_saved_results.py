@@ -584,12 +584,7 @@ def reproduce_group(group: str, results_dir: Path, output_root: Path) -> None:
             save_per_class_heatmap(metrics_dir, model_names, model_group, model_output_dir / "per_class_f1_heatmap.png")
             save_individual_loss_curves(metrics_dir, model_names, model_output_dir)
             save_top_confusions(metrics_dir, model_names, model_output_dir)
-            copy_confusion_matrices(
-                figures_dir,
-                model_names,
-                model_output_dir,
-                preferred_dirs=[ckplus_evaluated_dir / model_group],
-            )
+            copy_confusion_matrices(figures_dir, model_names, model_output_dir)
             copy_source_reports(metrics_dir, model_names, model_output_dir)
             dashboard_path = write_dashboard(model_output_dir, f"CK+ {model_group} Saved Results")
             for name in model_names:
@@ -602,16 +597,7 @@ def reproduce_group(group: str, results_dir: Path, output_root: Path) -> None:
         save_table_image(combined, output_dir / "summary_metrics_table.png", "CK+ combined summary metrics")
         save_metric_barplot(combined, group, output_dir / "test_f1_comparison.png")
         save_top_confusions(metrics_dir, experiment_names, output_dir)
-        copy_confusion_matrices(
-            figures_dir,
-            experiment_names,
-            output_dir,
-            preferred_dirs=[
-                ckplus_evaluated_dir / "baseline",
-                ckplus_evaluated_dir / "resnet18",
-                ckplus_evaluated_dir / "efficientnet_b0",
-            ],
-        )
+        copy_confusion_matrices(figures_dir, experiment_names, output_dir)
         copy_source_reports(metrics_dir, experiment_names, output_dir)
         dashboard_path = write_dashboard(output_dir, "CK+ Combined Saved Results")
         print(f"Reproduced {len(experiment_names)} ckplus_external experiment(s) into {output_dir}")
