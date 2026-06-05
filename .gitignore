@@ -5,7 +5,8 @@ __pycache__/
 venv/
 
 # Dataset and generated artifacts
-data/raw/*
+data/raw/ckplus/*
+data/raw/fer2013_images/*
 data/processed/*
 results/checkpoints/*
 results/figures/*
@@ -13,6 +14,8 @@ results/metrics/*
 reports/generated/*
 
 !data/raw/.gitkeep
+!data/raw/ckplus/.gitkeep
+!data/raw/fer2013_images/.gitkeep
 !data/processed/.gitkeep
 !results/checkpoints/.gitkeep
 !results/figures/.gitkeep
